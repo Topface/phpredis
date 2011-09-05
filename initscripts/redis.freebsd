@@ -1,0 +1,77 @@
+#!/bin/sh
+
+# PROVIDE: redis
+# REQUIRE: LOGIN cleanvar
+# KEYWORD: shutdown
+
+#
+# Add the following lines to /etc/rc.conf to enable redis:
+# redis_profilename_enable (bool):        Set to "NO" by default.
+#                Set it to "YES" to enable redis
+# redis_profiles (str):        Set to "" by default.
+#                just before redis starts.
+# redis_flags (str):        Set to "" by default.
+
+. /etc/rc.subr
+
+name="redis"
+rcvar=`set_rcvar`
+
+command="/usr/local/bin/redis-server"
+pidprefix="/var/run/redis"
+logprefix="/var/log/redis"
+dbprefix="/var/db/${name}"
+pidfile="${_pidprefix}.pid"
+
+[ -z "$redis_enable" ]       && redis_enable="NO"
+[ -z "$redis_profiles" ]     && redis_profiles=""
+[ -z "$redis_flags" ]        && redis_flags=""
+[ -z "$redis_user"  ]        && redis_user="redis"
+
+load_rc_config $name
+
+if [ -n "$2" ]; then
+    profile="$2"
+    if [ "x${redis_profiles}" != "x" ]; then
+        pidfile="${pidprefix}/${profile}.pid"
+        eval redis_enable="\${${name}_${profile}_enable:-${redis_enable}}"
+        redis_flags="/usr/local/etc/${name}/${profile}.conf"
+    else
+        echo "$0: empty extra argument spec'd."
+    fi
+else
+    if [ "x${redis_profiles}" != "x" -a "x$1" != "x" ]; then
+        for profile in ${redis_profiles}; do
+            echo "redis profile: ${profile}"
+            /usr/local/etc/rc.d/redis $1 ${profile}
+            retcode="$?"
+            if [ "0${retcode}" -ne 0 ]; then
+                failed="${profile} (${retcode}) ${failed:-}"
+            else
+                success="${profile} ${success:-}"
+            fi
+        done
+        exit 0
+    fi
+fi
+
+start_precmd="${name}_prestart"
+
+redis_prestart()
+{
+        if [ ! -d "${pidprefix}" ]; then
+                mkdir "${pidprefix}" || return 1
+                chown -R ${redis_user}:${redis_user} ${pidprefix}
+        fi
+
+        if [ ! -d "${logprefix}" ]; then
+                mkdir "${logprefix}" || return 1
+                chown -R ${redis_user}:${redis_user} ${logprefix}
+        fi
+
+        if [ ! -d "${dbprefix}/${profile}" ]; then
+                mkdir "${dbprefix}/${profile}" || return 1
+                chown -R ${redis_user}:${redis_user} ${dbprefix}/${profile}
+        fi
+}
+run_rc_command "$1"

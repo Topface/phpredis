@@ -1,0 +1,153 @@
+#!/bin/sh
+#
+# redis        init file for starting up the redis daemon
+#
+# chkconfig:   - 20 80
+# description: Starts and stops the redis daemon.
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+
+name="redis-server"
+exec="/usr/sbin/$name"
+instance=`basename $0`
+instance=${instance##redis-}
+pidfile="/var/run/redis/redis.pid"
+REDIS_CONFIG="/etc/redis.conf"
+REDIS_CONFIGDIR="/etc/redis.d"
+
+[ -e /etc/sysconfig/redis ] && . /etc/sysconfig/redis
+
+#
+# Use LSB init script functions for printing messages, if possible
+#
+lsb_functions="/lib/lsb/init-functions"
+if test -f $lsb_functions ; then
+  . $lsb_functions
+else
+  log_success_msg()
+  {
+    echo " SUCCESS! $@"
+  }
+  log_failure_msg()
+  {
+    echo " ERROR! $@"
+  }
+fi
+
+
+lockfile=/var/lock/subsys/redis/$instance.run
+
+start() {
+    if [ ! -x $exec ]; then
+	log_failure_msg "Can't find $name binary $exec!"
+	exit 5
+    fi
+    mkdir -p `dirname $lockfile`
+    chown -R ${REDIS_USER-redis} `dirname $lockfile`
+    if [ -d $REDIS_CONFIGDIR ]; then
+	pidfile={pidfile%%redis.pid}"${instance}.pid"
+	if [ -f $REDIS_CONFIGDIR/$instance.conf ]; then
+	    echo -n $"Starting $name.$instance: "
+	    db_dir=`grep -Ev '^(#|;)' $REDIS_CONFIGDIR/$instance.conf | grep -F 'dir ' | tail -1 |awk '{print $2}'`
+	    mkdir -p $db_dir
+	    chown -R ${REDIS_USER-redis} $db_dir
+	    daemon --user ${REDIS_USER-redis} "$exec $REDIS_CONFIGDIR/$instance.conf"
+	elif [ -f $REDIS_CONFIG ]; then
+	    echo -n $"Starting $name.$instance with default config $REDIS_CONFIG: "
+	    db_dir=`grep -Ev '^(#|;)' $REDIS_CONFIG | grep -F 'dir ' |tail -1 |awk '{print $2}'`
+	    mkdir -p $db_dir
+	    chown -R ${REDIS_USER-redis} $db_dir
+	    daemon --user ${REDIS_USER-redis} "$exec $REDIS_CONFIG"
+	else
+	    log_failure_msg "Can't find neither per-instance config file nor default one!"
+	    exit 6
+	fi
+    elif [ -f $REDIS_CONFIG ]; then
+	echo -n $"Starting $name: "
+	db_dir=`grep -Ev '^(#|;)' $REDIS_CONFIG | grep -F 'dir ' |tail -1 |awk '{print $2}'`
+	mkdir -p $db_dir
+	chown -R ${REDIS_USER-redis} $db_dir
+	daemon --user ${REDIS_USER-redis} "$exec $REDIS_CONFIG"
+    else
+        log_failure_msg "Can't find $name config file ($REDIS_CONFIG)!"
+        exit 6
+    fi
+
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
+
+stop() {
+    if [ "x${instance}x" != "xx" ]; then
+        echo -n $"Stopping $name.$instance: "
+	pidfile={pidfile%%redis.pid}"${instance}.pid"
+        killproc -p $pidfile $name.$instance
+    else
+	echo -n $"Stopping $name: "
+        killproc -p $pidfile $name
+    fi
+    
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    false
+}
+
+rh_status() {
+    if [ "x${instance}x" != "xx" ]; then
+        pidfile={pidfile%%redis.pid}"${instance}.pid"
+        name=$name.$instance
+    else
+	status -p $pidfile $name
+    fi
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    reload)
+        rh_status_q || exit 7
+        $1
+        ;;
+    force-reload)
+        force_reload
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart}"
+        exit 2
+esac
+exit $?
