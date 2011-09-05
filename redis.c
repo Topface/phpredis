@@ -211,6 +211,19 @@ static zend_function_entry redis_functions[] = {
      PHP_MALIAS(Redis, srem, sRemove, NULL, ZEND_ACC_PUBLIC)
      PHP_MALIAS(Redis, sismember, sContains, NULL, ZEND_ACC_PUBLIC)
      PHP_MALIAS(Redis, zrevrange, zReverseRange, NULL, ZEND_ACC_PUBLIC)
+
+     /* SONETICA START */
+     PHP_ME(Redis, isValidKey, NULL, ZEND_ACC_PUBLIC)
+     PHP_ME(Redis, qPush, NULL, ZEND_ACC_PUBLIC)
+     PHP_ME(Redis, qPoll, NULL, ZEND_ACC_PUBLIC)
+     PHP_ME(Redis, qInfo, NULL, ZEND_ACC_PUBLIC)
+     PHP_ME(Redis, getMultipleDelayed, NULL, ZEND_ACC_PUBLIC)
+     PHP_ME(Redis, fetchMultiBulk, NULL, ZEND_ACC_PUBLIC)
+     PHP_MALIAS(Redis, srename, renameKey, NULL, ZEND_ACC_PUBLIC)
+     PHP_MALIAS(Redis, lPushLeft, lPush, NULL, ZEND_ACC_PUBLIC)
+     PHP_MALIAS(Redis, add, setnx, NULL, ZEND_ACC_PUBLIC)
+     /* SONETICA END */
+
      {NULL, NULL, NULL}
 };
 
@@ -234,6 +247,23 @@ zend_module_entry redis_module_entry = {
 #ifdef COMPILE_DL_REDIS
 ZEND_GET_MODULE(redis)
 #endif
+
+/* SONETICA START */
+int
+redis_validate_key(const char *key)
+{
+    static char invalid_chars[] = { ' ', '\t', '\r', '\n' };
+    const char *s = key;
+
+    if (!*s) return 0;
+
+    while (*s) {
+        if (strchr(invalid_chars, *s++)) return 0;
+    }
+
+    return 1;
+}
+/* SONETICA END */
 
 PHPAPI zend_class_entry *redis_get_exception_base(int root TSRMLS_DC)
 {
@@ -5165,6 +5195,202 @@ PHP_METHOD(Redis, setOption) {
     }
 }
 /* }}} */
+
+/* SONETICA START */
+/* {{{ proto boolean Redis::isValidKey(string key)
+ */
+PHP_METHOD(Redis, isValidKey)
+{
+    zval *object;
+    RedisSock *redis_sock = NULL;
+    char *key = NULL;
+    int key_len;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Os",
+        &object, redis_ce, &key, &key_len) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    if (redis_validate_key(key)) {
+        RETURN_TRUE;
+    } else {
+        RETURN_FALSE;
+    }
+}
+/* }}} */
+
+/* {{{ proto int Redis::qPush(key, value)
+ */
+PHP_METHOD(Redis, qPush)
+{
+    zval *object;
+    RedisSock *redis_sock;
+    char *cmd, *key, *val;
+    int cmd_len, key_len, val_len;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Oss",
+                                     &object, redis_ce,
+                                     &key, &key_len, &val, &val_len) == FAILURE) {
+        RETURN_NULL();
+    }
+
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+        RETURN_FALSE;
+    }
+
+    cmd_len = redis_cmd_format_static(&cmd, "QPUSH", "ss", key, key_len, val, val_len);
+
+    REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len);
+    IF_ATOMIC() {
+        redis_long_response(INTERNAL_FUNCTION_PARAM_PASSTHRU, redis_sock, NULL, NULL);
+    }
+    REDIS_PROCESS_RESPONSE(redis_long_response);
+}
+/* }}} */
+
+/* {{{ proto string Redis::qPoll(key[, timeout])
+ */
+PHP_METHOD(Redis, qPoll)
+{
+    zval *object;
+    RedisSock *redis_sock;
+    char *cmd, *key;
+    int cmd_len, key_len;
+    long timeout = -1;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Os|l",
+                                     &object, redis_ce,
+                                     &key, &key_len, &timeout) == FAILURE) {
+        RETURN_NULL();
+    }
+
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+        RETURN_FALSE;
+    }
+
+    cmd_len = redis_cmd_format_static(&cmd, "QPOLL", "sd", key, key_len, timeout);
+
+    REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len);
+    IF_ATOMIC() {
+        redis_string_response(INTERNAL_FUNCTION_PARAM_PASSTHRU, redis_sock, NULL, NULL);
+    }
+    REDIS_PROCESS_RESPONSE(redis_string_response);
+}
+/* }}} */
+
+/* {{{ proto array Redis::qInfo(key)
+ */
+PHP_METHOD(Redis, qInfo) {
+
+    zval *object;
+    RedisSock *redis_sock;
+
+    char *cmd, *key;
+    int cmd_len, key_len;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Os",
+                                     &object, redis_ce,
+                                     &key, &key_len) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+        RETURN_FALSE;
+    }
+
+    cmd_len = redis_cmd_format_static(&cmd, "QINFO", "s", key, key_len);
+
+    REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len);
+    IF_ATOMIC() {
+        redis_info_response(INTERNAL_FUNCTION_PARAM_PASSTHRU, redis_sock, NULL, NULL);
+    }
+    REDIS_PROCESS_RESPONSE(redis_info_response);
+}
+
+/* }}} */
+
+/* {{{ proto array Redis::getMultipleDelayed(array keys)
+ */
+PHP_METHOD(Redis, getMultipleDelayed)
+{
+    zval *object, *array, **data;
+    HashTable *arr_hash;
+    HashPosition pointer;
+    RedisSock *redis_sock;
+    char *cmd = "", *old_cmd = NULL;
+    int cmd_len = 0, array_count, elements = 1;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Oa",
+                                     &object, redis_ce, &array) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+        RETURN_FALSE;
+    }
+
+    arr_hash    = Z_ARRVAL_P(array);
+    array_count = zend_hash_num_elements(arr_hash);
+
+    if (array_count == 0) {
+        RETURN_FALSE;
+    }
+
+    for (zend_hash_internal_pointer_reset_ex(arr_hash, &pointer);
+         zend_hash_get_current_data_ex(arr_hash, (void**) &data,
+                                       &pointer) == SUCCESS;
+         zend_hash_move_forward_ex(arr_hash, &pointer)) {
+
+        if (Z_TYPE_PP(data) == IS_STRING) {
+            char *old_cmd = NULL;
+            if(*cmd) {
+                old_cmd = cmd;
+            }
+            cmd_len = redis_cmd_format(&cmd, "%s$%d" _NL "%s" _NL
+                            , cmd, cmd_len
+                            , Z_STRLEN_PP(data), Z_STRVAL_PP(data), Z_STRLEN_PP(data));
+            if(old_cmd) {
+                efree(old_cmd);
+            }
+            elements++;
+        }
+    }
+
+    old_cmd = cmd;
+    cmd_len = redis_cmd_format(&cmd, "*%d" _NL "$4" _NL "MGET" _NL "%s", elements, cmd, cmd_len);
+    efree(old_cmd);
+
+    REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len);
+    RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ proto array Redis::fetchMultiBulk()
+ */
+PHP_METHOD(Redis, fetchMultiBulk)
+{
+    zval *object;
+    RedisSock *redis_sock;
+
+    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "O",
+                                     &object, redis_ce) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+        RETURN_FALSE;
+    }
+
+    IF_ATOMIC() {
+        if (redis_sock_read_multibulk_reply(INTERNAL_FUNCTION_PARAM_PASSTHRU,
+                                            redis_sock, NULL, NULL) < 0) {
+            RETURN_FALSE;
+        }
+    }
+    REDIS_PROCESS_RESPONSE(redis_sock_read_multibulk_reply);
+}
+/* }}} */
+/* SONETICA END */
 
 /* vim: set tabstop=4 softtabstop=4 noexpandtab shiftwidth=4: */
 

@@ -153,6 +153,15 @@ PHP_METHOD(Redis, unsubscribe);
 PHP_METHOD(Redis, getOption);
 PHP_METHOD(Redis, setOption);
 
+/* SONETICA START */
+PHP_METHOD(Redis, isValidKey);
+PHP_METHOD(Redis, qPush);
+PHP_METHOD(Redis, qPoll);
+PHP_METHOD(Redis, qInfo);
+PHP_METHOD(Redis, getMultipleDelayed);
+PHP_METHOD(Redis, fetchMultiBulk);
+/* SONETICA END */
+
 #ifdef PHP_WIN32
 #define PHP_REDIS_API __declspec(dllexport)
 #else
