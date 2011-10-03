@@ -56,6 +56,13 @@ session.save_path = "tcp://host1:6379?weight=1, tcp://host2:6379?weight=2&timeou
 Sessions have a lifetime expressed in seconds and stored in the INI variable "session.gc_maxlifetime". You can change it with [`ini_set()`](http://php.net/ini_set).
 The session handler requires a version of Redis with the `SETEX` command (at least 2.0).
 
+
+Distributed Redis Array
+=======================
+
+See [dedicated page](https://github.com/nicolasff/phpredis/blob/master/arrays.markdown#readme).
+
+
 Error handling
 ==============
 
@@ -683,6 +690,9 @@ $redis->lRange('key1', 0, -1); /* array('A', 'B') */
 ## lRem, lRemove
 ##### *Description*
 Removes the first `count` occurences of the value element from the list. If count is zero, all the matching elements are removed. If count is negative, elements are removed from tail to head.
+
+**Note**: The argument order is not the same as in the Redis documentation. This difference is kept for compatibility reasons.
+
 ##### *Parameters*
 *key*  
 *value*  
