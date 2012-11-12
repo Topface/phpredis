@@ -5781,7 +5781,7 @@ PHP_METHOD(Redis, qPush)
         RETURN_NULL();
     }
 
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
         RETURN_FALSE;
     }
 
@@ -5811,7 +5811,7 @@ PHP_METHOD(Redis, qPoll)
         RETURN_NULL();
     }
 
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
         RETURN_FALSE;
     }
 
@@ -5841,7 +5841,7 @@ PHP_METHOD(Redis, qInfo) {
         RETURN_FALSE;
     }
 
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
         RETURN_FALSE;
     }
 
@@ -5872,7 +5872,7 @@ PHP_METHOD(Redis, getMultipleDelayed)
         RETURN_FALSE;
     }
 
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
         RETURN_FALSE;
     }
 
@@ -5924,7 +5924,7 @@ PHP_METHOD(Redis, fetchMultiBulk)
         RETURN_FALSE;
     }
 
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC) < 0) {
+    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
         RETURN_FALSE;
     }
 
