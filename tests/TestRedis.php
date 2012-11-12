@@ -1,9 +1,10 @@
 <?php
-require_once 'PHPUnit.php';
+
+require_once(dirname($_SERVER['PHP_SELF'])."/test.php");
 
 echo "Note: these tests might take up to a minute. Don't worry :-)\n";
 
-class Redis_Test extends PHPUnit_TestCase
+class Redis_Test extends TestSuite
 {
 	const HOST = '127.0.0.1';
 	const PORT = 6379;
@@ -17,9 +18,11 @@ class Redis_Test extends PHPUnit_TestCase
     public function setUp()
     {
 	$this->redis = $this->newInstance();
+	$info = $this->redis->info();
+	$this->version = (isset($info['redis_version'])?$info['redis_version']:'0.0.0');
     }
 
-    private function newInstance() {
+	private function newInstance() {
 	$r = new Redis();
 	$r->connect(self::HOST, self::PORT);
 
@@ -43,6 +46,12 @@ class Redis_Test extends PHPUnit_TestCase
         $this->tearDown();
     }
 
+    public function testMinimumVersion()
+    {
+	// Minimum server version required for tests
+	$this->assertTrue(version_compare($this->version, "2.4.0", "ge"));
+    }
+
     public function testPing()
     {
 
@@ -53,6 +62,15 @@ class Redis_Test extends PHPUnit_TestCase
 	    	$this->assertEquals('+PONG', $this->redis->ping());
 	}
     }
+
+	public function testPipelinePublish() {
+
+		$ret = $this->redis->pipeline()
+			->publish('chan', 'msg')
+			->exec();
+
+		$this->assertTrue(is_array($ret) && count($ret) === 1 && $ret[0] >= 0);
+	}
 
     public function testBitsets() {
 
@@ -104,6 +122,12 @@ class Redis_Test extends PHPUnit_TestCase
 	 $this->redis->set('x', $s);
 	 $this->assertEquals($s, $this->redis->get('x'));
     }
+
+	public function testEcho() {
+		$this->assertEquals($this->redis->echo("hello"), "hello");
+		$this->assertEquals($this->redis->echo(""), "");
+		$this->assertEquals($this->redis->echo(" 0123 "), " 0123 ");
+	}
 
     public function testErr() {
 
@@ -333,22 +357,22 @@ class Redis_Test extends PHPUnit_TestCase
         $this->redis->set('key', 0);
 
         $this->redis->incr('key');
-	$this->assertEquals(1, $this->redis->get('key'));
+	$this->assertEquals(1, (int)$this->redis->get('key'));
 
         $this->redis->incr('key');
-	$this->assertEquals(2, $this->redis->get('key'));
+	$this->assertEquals(2, (int)$this->redis->get('key'));
 
-        $this->redis->incr('key', 3);
-	$this->assertEquals(5, $this->redis->get('key'));
+       $this->redis->incr('key', 3);
+	$this->assertEquals(5, (int)$this->redis->get('key'));
 
 	$this->redis->incrBy('key', 3);
-	$this->assertEquals(8, $this->redis->get('key'));
+	$this->assertEquals(8, (int)$this->redis->get('key'));
 
 	$this->redis->incrBy('key', 1);
-	$this->assertEquals(9, $this->redis->get('key'));
+	$this->assertEquals(9, (int)$this->redis->get('key'));
 
 	$this->redis->incrBy('key', -1);
-	$this->assertEquals(8, $this->redis->get('key'));
+	$this->assertEquals(8, (int)$this->redis->get('key'));
 
 	$this->redis->delete('key');
 
@@ -359,7 +383,35 @@ class Redis_Test extends PHPUnit_TestCase
 
 	$this->redis->incr('key');
 	$this->assertTrue("abc" === $this->redis->get('key'));
+	}
 
+    public function testIncrByFloat()
+    {
+	// incrbyfloat is new in 2.6.0
+	if (version_compare($this->version, "2.5.0", "lt")) {
+		$this->markTestSkipped();
+	}
+
+	$this->redis->delete('key');
+
+	$this->redis->set('key', 0);
+
+	$this->redis->incrbyfloat('key', 1.5);
+	$this->assertEquals('1.5', $this->redis->get('key'));
+
+	$this->redis->incrbyfloat('key', 2.25);
+	$this->assertEquals('3.75', $this->redis->get('key'));
+
+	$this->redis->incrbyfloat('key', -2.25);
+	$this->assertEquals('1.5', $this->redis->get('key'));
+
+	$this->redis->set('key', 'abc');
+
+	$this->redis->incrbyfloat('key', 1.5);
+	$this->assertTrue("abc" === $this->redis->get('key'));
+
+	$this->redis->incrbyfloat('key', -1.5);
+	$this->assertTrue("abc" === $this->redis->get('key'));
     }
 
     public function testDecr()
@@ -367,25 +419,25 @@ class Redis_Test extends PHPUnit_TestCase
         $this->redis->set('key', 5);
 
         $this->redis->decr('key');
-	$this->assertEquals(4, $this->redis->get('key'));
+	$this->assertEquals(4, (int)$this->redis->get('key'));
 
         $this->redis->decr('key');
-	$this->assertEquals(3, $this->redis->get('key'));
+	$this->assertEquals(3, (int)$this->redis->get('key'));
 
         $this->redis->decr('key', 2);
-	$this->assertEquals(1, $this->redis->get('key'));
+	$this->assertEquals(1, (int)$this->redis->get('key'));
 
 	$this->redis->decr('key', 2);
-	$this->assertEquals(-1, $this->redis->get('key'));
+	$this->assertEquals(-1, (int)$this->redis->get('key'));
 
 	$this->redis->decrBy('key', 2);
-	$this->assertEquals(-3, $this->redis->get('key'));
+	$this->assertEquals(-3, (int)$this->redis->get('key'));
 
 	$this->redis->decrBy('key', 1);
-	$this->assertEquals(-4, $this->redis->get('key'));
+	$this->assertEquals(-4, (int)$this->redis->get('key'));
 
 	$this->redis->decr('key', -10);
-	$this->assertEquals(6, $this->redis->get('key'));
+	$this->assertEquals(6, (int)$this->redis->get('key'));
     }
 
     public function testExists()
@@ -474,6 +526,11 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->redis->sAdd('keySet', 'val0');
 	$this->redis->sAdd('keySet', 'val1');
 	$this->assertEquals(Redis::REDIS_SET, $this->redis->type('keySet'));
+
+    // sadd with numeric key
+	$this->redis->delete(123);
+	$this->assertTrue(1 === $this->redis->sAdd(123, 'val0'));
+	$this->assertTrue(array('val0') === $this->redis->sMembers(123));
 
 	// zset
 	$this->redis->delete('keyZSet');
@@ -606,16 +663,16 @@ class Redis_Test extends PHPUnit_TestCase
 	// TODO: fix this broken test.
 //		$this->redis->delete('list');
 //		$params = array(
-//			0 => array("pipe", "r"), 
+//			0 => array("pipe", "r"),
 //			1 => array("pipe", "w"),
 //			2 => array("file", "/dev/null", "w")
 //		);
 //		if(function_exists('proc_open')) {
 //			$env = array('PHPREDIS_key' =>'list', 'PHPREDIS_value' => 'value');
 //			$process = proc_open('php', $params, $pipes, '/tmp', $env);
-//	
+//
 //			if (is_resource($process)) {
-//				fwrite($pipes[0],  '<?php 
+//				fwrite($pipes[0],  '<?php
 //	sleep(2);
 //	$r = new Redis;
 //	$r->connect("'.self::HOST.'", '.self::PORT.');
@@ -624,11 +681,11 @@ class Redis_Test extends PHPUnit_TestCase
 //	}
 //	$r->lPush($_ENV["PHPREDIS_key"], $_ENV["PHPREDIS_value"]);
 //	?' . '>');
-//	
+//
 //				fclose($pipes[0]);
 //				fclose($pipes[1]);
 //				$re = proc_close($process);
-//	
+//
 //				$this->assertTrue($this->redis->blPop(array('list'), 5) === array("list", "value"));
 //			}
 //		}
@@ -663,8 +720,8 @@ class Redis_Test extends PHPUnit_TestCase
     }
 
     //lInsert, lPopx, rPopx
-    public function testlPopx() {	
-		//test lPushx/rPushx  
+    public function testlPopx() {
+		//test lPushx/rPushx
 		$this->redis->delete('keyNotExists');
 		$this->assertTrue($this->redis->lPushx('keyNotExists', 'value') === 0);
 		$this->assertTrue($this->redis->rPushx('keyNotExists', 'value') === 0);
@@ -739,6 +796,23 @@ class Redis_Test extends PHPUnit_TestCase
 
     }
 
+    public function testSortPrefix() {
+	// Make sure that sorting works with a prefix
+        $this->redis->setOption(Redis::OPT_PREFIX, 'some-prefix:');
+        $this->redis->del('some-item');
+        $this->redis->sadd('some-item', 1);
+        $this->redis->sadd('some-item', 2);
+        $this->redis->sadd('some-item', 3);
+
+        $this->assertEquals(array('1','2','3'), $this->redis->sortAsc('some-item'));
+	$this->assertEquals(array('3','2','1'), $this->redis->sortDesc('some-item'));
+	$this->assertEquals(array('1','2','3'), $this->redis->sort('some-item'));
+
+	// Kill our set/prefix
+	$this->redis->del('some-item');
+	$this->redis->setOption(Redis::OPT_PREFIX, '');
+    }
+
     public function testSortAsc() {
 
 	$this->setupSort();
@@ -788,8 +862,14 @@ class Redis_Test extends PHPUnit_TestCase
 	}
 
 	// SORT list → [ghi, def, abc]
-	$this->assertEquals(array_reverse($list), $this->redis->sortAsc('list'));
-	$this->assertEquals(array_reverse($list), $this->redis->sort('list', array('sort' => 'asc')));
+	if (version_compare($this->version, "2.5.0", "lt")) {
+		$this->assertEquals(array_reverse($list), $this->redis->sortAsc('list'));
+		$this->assertEquals(array_reverse($list), $this->redis->sort('list', array('sort' => 'asc')));
+	} else {
+		// TODO rewrite, from 2.6.0 release notes:
+		// SORT now will refuse to sort in numerical mode elements that can't be parsed
+		// as numbers
+	}
 
 	// SORT list ALPHA → [abc, def, ghi]
 	$this->assertEquals($list, $this->redis->sortAscAlpha('list'));
@@ -823,7 +903,13 @@ class Redis_Test extends PHPUnit_TestCase
 	}
 
 	// SORT list → [ghi, abc, def]
-	$this->assertEquals(array_reverse($list), $this->redis->sortDesc('list'));
+	if (version_compare($this->version, "2.5.0", "lt")) {
+		$this->assertEquals(array_reverse($list), $this->redis->sortDesc('list'));
+	} else {
+		// TODO rewrite, from 2.6.0 release notes:
+		// SORT now will refuse to sort in numerical mode elements that can't be parsed
+		// as numbers
+	}
 
 	// SORT list ALPHA → [abc, def, ghi]
 	$this->assertEquals(array('ghi', 'def', 'abc'), $this->redis->sortDescAlpha('list'));
@@ -1017,8 +1103,13 @@ class Redis_Test extends PHPUnit_TestCase
 
         $array = array('val', 'val2', 'val3');
 
-        $this->assertEquals($array, $this->redis->sGetMembers('set'));
-	$this->assertEquals($array, $this->redis->sMembers('set'));	// test alias
+		$sGetMembers = $this->redis->sGetMembers('set');
+		sort($sGetMembers);
+		$this->assertEquals($array, $sGetMembers);
+
+		$sMembers = $this->redis->sMembers('set');
+		sort($sMembers);
+		$this->assertEquals($array, $sMembers);	// test alias
     }
 
     public function testlSet() {
@@ -1515,16 +1606,42 @@ class Redis_Test extends PHPUnit_TestCase
 	    "connected_clients",
 	    "connected_slaves",
 	    "used_memory",
-	    "changes_since_last_save",
-	    "bgsave_in_progress",
-	    "last_save_time",
 	    "total_connections_received",
 	    "total_commands_processed",
 	    "role");
-
+	if (version_compare($this->version, "2.5.0", "lt")) {
+		array_push($keys,
+		    "changes_since_last_save",
+		    "bgsave_in_progress",
+		    "last_save_time"
+		);
+	} else {
+		array_push($keys,
+		    "rdb_changes_since_last_save",
+		    "rdb_bgsave_in_progress",
+		    "rdb_last_save_time"
+		);
+	}
 
 	foreach($keys as $k) {
 	    $this->assertTrue(in_array($k, array_keys($info)));
+	}
+	}
+
+    public function testInfoCommandStats() {
+
+	// INFO COMMANDSTATS is new in 2.6.0
+	if (version_compare($this->version, "2.5.0", "lt")) {
+		$this->markTestSkipped();
+	}
+
+	$info = $this->redis->info("COMMANDSTATS");
+
+	$this->assertTrue(is_array($info));
+	if (is_array($info)) {
+		foreach($info as $k => $value) {
+			$this->assertTrue(strpos($k, 'cmdstat_') !== false);
+	    }
 	}
     }
 
@@ -1544,6 +1661,26 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->assertEquals($this->redis->mget(array('x', 'y', 'z')), array('a', 'b', 'c'));	// check x y z
 
 	$this->assertFalse($this->redis->mset(array())); // set ø → FALSE
+
+
+	/*
+	 * Integer keys
+	 */
+
+	// No prefix
+	$set_array = Array(-1 => 'neg1', -2 => 'neg2', -3 => 'neg3', 1 => 'one', 2 => 'two', '3' => 'three');
+	$this->redis->delete(array_keys($set_array));
+	$this->assertTrue($this->redis->mset($set_array));
+	$this->assertEquals($this->redis->mget(array_keys($set_array)), array_values($set_array));
+	$this->redis->delete(array_keys($set_array));
+
+	// With a prefix
+	$this->redis->setOption(Redis::OPT_PREFIX, 'pfx:');
+	$this->redis->delete(array_keys($set_array));
+	$this->assertTrue($this->redis->mset($set_array));
+	$this->assertEquals($this->redis->mget(array_keys($set_array)), array_values($set_array));
+	$this->redis->delete(array_keys($set_array));
+	$this->redis->setOption(Redis::OPT_PREFIX, '');
     }
 
     public function testMsetNX() {
@@ -1580,6 +1717,18 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->assertTrue(array() === $this->redis->lgetRange('y', 0, -1));
 
     }
+
+	public function testZAddFirstArg() {
+
+		$this->redis->delete('key');
+
+		$zsetName = 100; // not a string!
+		$this->assertTrue(1 === $this->redis->zAdd($zsetName, 0, 'val0'));
+		$this->assertTrue(1 === $this->redis->zAdd($zsetName, 1, 'val1'));
+
+		$this->assertTrue(array('val0', 'val1') === $this->redis->zRange($zsetName, 0, -1));
+	}
+
     public function testZX() {
 
 	$this->redis->delete('key');
@@ -1591,8 +1740,6 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->assertTrue(1 === $this->redis->zAdd('key', 2, 'val2'));
 	$this->assertTrue(1 === $this->redis->zAdd('key', 1, 'val1'));
 	$this->assertTrue(1 === $this->redis->zAdd('key', 3, 'val3'));
-	$this->assertTrue(FALSE === $this->redis->zAdd('key'));	// min number of parameters
-	$this->assertTrue(FALSE === $this->redis->zAdd(42, 123, 'aa'));	// string key
 	$this->assertTrue(2 === $this->redis->zAdd('key', 4, 'val4', 5, 'val5')); // multiple parameters
 
 	$this->assertTrue(array('val0', 'val1', 'val2', 'val3', 'val4', 'val5') === $this->redis->zRange('key', 0, -1));
@@ -1713,6 +1860,38 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->redis->delete('key2');
 	$this->redis->delete('key3');
 
+	// test integer and float weights (GitHub issue #109).
+	$this->redis->del('key1', 'key2', 'key3');
+
+	$this->redis->zadd('key1', 1, 'one');
+	$this->redis->zadd('key1', 2, 'two');
+	$this->redis->zadd('key2', 1, 'one');
+	$this->redis->zadd('key2', 2, 'two');
+	$this->redis->zadd('key2', 3, 'three');
+
+	$this->assertTrue($this->redis->zunion('key3', array('key1', 'key2'), array(2, 3.0)) === 3);
+
+
+	$this->redis->delete('key1');
+	$this->redis->delete('key2');
+	$this->redis->delete('key3');
+
+	$this->redis->zadd('key1', 2000.1, 'one');
+	$this->redis->zadd('key1', 3000.1, 'two');
+	$this->redis->zadd('key1', 4000.1, 'three');
+
+	$ret = $this->redis->zRange('key1', 0, -1, TRUE);
+	$this->assertTrue(count($ret) === 3);
+	$retValues = array_keys($ret);
+
+	$this->assertTrue(array('one', 'two', 'three') === $retValues);
+
+	// + 0 converts from string to float OR integer
+	$this->assertTrue(is_float($ret['one'] + 0));
+	$this->assertTrue(is_float($ret['two'] + 0));
+	$this->assertTrue(is_float($ret['three'] + 0));
+
+	$this->redis->delete('key1');
 
 	// ZREMRANGEBYRANK
 	$this->redis->zAdd('key1', 1, 'one');
@@ -1788,6 +1967,7 @@ class Redis_Test extends PHPUnit_TestCase
 	$this->assertTrue(2 === $this->redis->zRevRank('z', 'one'));
 	$this->assertTrue(1 === $this->redis->zRevRank('z', 'two'));
 	$this->assertTrue(0 === $this->redis->zRevRank('z', 'five'));
+
     }
 
     public function testHashes() {
@@ -1856,6 +2036,17 @@ class Redis_Test extends PHPUnit_TestCase
 
 	$this->redis->hSet('h', 'y', 'not-a-number');
 	$this->assertTrue(FALSE === $this->redis->hIncrBy('h', 'y', 1));
+
+	if (version_compare($this->version, "2.5.0", "ge")) {
+	// hIncrByFloat
+	$this->redis->delete('h');
+	$this->assertTrue(1.5 === $this->redis->hIncrByFloat('h','x', 1.5));
+	$this->assertTrue(3.0 === $this->redis->hincrByFloat('h','x', 1.5));
+	$this->assertTrue(1.5 === $this->redis->hincrByFloat('h','x', -1.5));
+
+	$this->redis->hset('h','y','not-a-number');
+	$this->assertTrue(FALSE === $this->redis->hIncrByFloat('h', 'y', 1.5));
+	}
 
 	// hmset
 	$this->redis->delete('h');
@@ -2424,7 +2615,7 @@ class Redis_Test extends PHPUnit_TestCase
 
 	    // sorted sets
 	    $ret = $this->redis->multi($mode)
-		    ->delete('zkey1', 'zkey2', 'zkey5')
+			->delete('zkey1', 'zkey2', 'zkey5', 'zInter', 'zUnion')
 		    ->zadd('zkey1', 1, 'zValue1')
 		    ->zadd('zkey1', 5, 'zValue5')
 		    ->zadd('zkey1', 2, 'zValue2')
@@ -2453,6 +2644,7 @@ class Redis_Test extends PHPUnit_TestCase
 		    ->zadd('zkey5', 5, 'zValue5')
 		    ->zIncrBy('zkey5', 3, 'zValue5') // fix this
 		    ->zScore('zkey5', 'zValue5')
+			->zScore('zkey5', 'unknown')
 		    ->exec();
 
 	    $i = 0;
@@ -2486,12 +2678,11 @@ class Redis_Test extends PHPUnit_TestCase
 	    $this->assertTrue($ret[$i++] === 1); // added value to zkey5, with score 5
 	    $this->assertTrue($ret[$i++] === 8.0); // incremented score by 3 → it is now 8.
 	    $this->assertTrue($ret[$i++] === 8.0); // current score is 8.
+		$this->assertTrue($ret[$i++] === FALSE); // score for unknown element.
 
 	    $this->assertTrue(count($ret) === $i);
 
-	    $serializer = $this->redis->getOption(Redis::OPT_SERIALIZER);
-	    $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE); // testing incr, which doesn't work with the serializer
-	    // hash
+		// hash
 	    $ret = $this->redis->multi($mode)
 		    ->delete('hkey1')
 		    ->hset('hkey1', 'key1', 'value1')
@@ -2507,12 +2698,9 @@ class Redis_Test extends PHPUnit_TestCase
 		    ->hvals('hkey1')
 		    ->hgetall('hkey1')
 		    ->hset('hkey1', 'valn', 1)
-		    ->hincrby('hkey1', 'valn', 4)
-		    ->hincrby('hkey1', 'val-fail', 42)
-		    ->hset('hkey1', 'val-fail', 'non-string')
+			->hset('hkey1', 'val-fail', 'non-string')
 		    ->hget('hkey1', 'val-fail')
-		    ->hincrby('hkey1', 'val-fail', 42)
-		    ->exec();
+			->exec();
 
 	    $i = 0;
 	    $this->assertTrue(is_array($ret));
@@ -2530,15 +2718,11 @@ class Redis_Test extends PHPUnit_TestCase
 	    $this->assertTrue($ret[$i] === array('value1', 'value3') || $ret[$i] === array('value3', 'value1')); $i++; // hvals
 	    $this->assertTrue($ret[$i] === array('key1' => 'value1', 'key3' => 'value3') || $ret[$i] === array('key3' => 'value3', 'key1' => 'value1')); $i++; // hgetall
 	    $this->assertTrue($ret[$i++] === 1); // added 1 element
-	    $this->assertTrue($ret[$i++] === 5); // added 4 to value 1 → 5
-	    $this->assertTrue($ret[$i++] === 42); // member doesn't exist → assume 0, and then add.
-	    $this->assertTrue($ret[$i++] === 0); // didn't add the element, already present, so 0.
+		$this->assertTrue($ret[$i++] === 1); // added the element, so 1.
 	    $this->assertTrue($ret[$i++] === 'non-string'); // hset succeeded
-	    $this->assertTrue($ret[$i++] === FALSE); // member isn't a number → fail.
-	    $this->assertTrue(count($ret) === $i);
-	    $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
+		$this->assertTrue(count($ret) === $i);
 
-	    $ret = $this->redis->multi() // default to MULTI, not PIPELINE.
+		$ret = $this->redis->multi($mode) // default to MULTI, not PIPELINE.
 		    ->delete('test')
 		    ->set('test', 'xyz')
 		    ->get('test')
@@ -2549,6 +2733,20 @@ class Redis_Test extends PHPUnit_TestCase
 	    $this->assertTrue($ret[$i++] === TRUE); // added 1 element
 	    $this->assertTrue($ret[$i++] === 'xyz');
 	    $this->assertTrue(count($ret) === $i);
+
+        // GitHub issue 78
+        $this->redis->del('test');
+        for($i = 1; $i <= 5; $i++)
+            $this->redis->zadd('test', $i, (string)$i);
+
+        $result = $this->redis->multi($mode)
+            ->zscore('test', "1")
+            ->zscore('test', "6")
+            ->zscore('test', "8")
+            ->zscore('test', "2")
+            ->exec();
+
+        $this->assertTrue($result === array(1.0, FALSE, FALSE, 2.0));
     }
 
     public function testSerializerPHP() {
@@ -2667,6 +2865,10 @@ class Redis_Test extends PHPUnit_TestCase
 	    $this->assertTrue(1 === $this->redis->zDelete('key', $z[3]));
 	    $this->assertTrue(0 === $this->redis->zDelete('key', $z[3]));
 	    unset($z[3]);
+
+		// check that zDelete doesn't crash with a missing parameter (GitHub issue #102):
+		$this->assertTrue(FALSE === @$this->redis->zDelete('key'));
+
 	    // variadic
 	    $this->redis->delete('k');
 	    $this->redis->zAdd('k', 0, 'a');
@@ -2762,16 +2964,365 @@ class Redis_Test extends PHPUnit_TestCase
 	    // keys
 	    $this->assertTrue(is_array($this->redis->keys('*')));
 
+		// issue #62, hgetall
+		$this->redis->del('hash1');
+		$this->redis->hSet('hash1','data', 'test 1');
+		$this->redis->hSet('hash1','session_id', 'test 2');
+
+		$data = $this->redis->hGetAll('hash1');
+		$this->assertTrue($data['data'] === 'test 1');
+		$this->assertTrue($data['session_id'] === 'test 2');
+
+		// issue #145, serializer with objects.
+		$this->redis->set('x', array(new stdClass, new stdClass));
+		$x = $this->redis->get('x');
+		$this->assertTrue(is_array($x));
+		$this->assertTrue(is_object($x[0]) && get_class($x[0]) === 'stdClass');
+		$this->assertTrue(is_object($x[1]) && get_class($x[1]) === 'stdClass');
+
 	    // revert
 	    $this->assertTrue($this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE) === TRUE); 	// set ok
 	    $this->assertTrue($this->redis->getOption(Redis::OPT_SERIALIZER) === Redis::SERIALIZER_NONE);		// get ok
     }
+
+    public function testDumpRestore() {
+
+		if (version_compare($this->version, "2.5.0", "lt")) {
+			$this->markTestSkipped();
+		}
+
+    	$this->redis->del('foo');
+    	$this->redis->del('bar');
+
+    	$this->redis->set('foo', 'this-is-foo');
+    	$this->redis->set('bar', 'this-is-bar');
+
+    	$d_foo = $this->redis->dump('foo');
+    	$d_bar = $this->redis->dump('bar');
+
+    	$this->redis->del('foo');
+    	$this->redis->del('bar');
+
+    	// Assert returns from restore
+    	$this->assertTrue($this->redis->restore('foo', 0, $d_bar));
+    	$this->assertTrue($this->redis->restore('bar', 0, $d_foo));
+
+    	// Now check that the keys have switched
+    	$this->assertTrue($this->redis->get('foo') === 'this-is-bar');
+    	$this->assertTrue($this->redis->get('bar') === 'this-is-foo');
+
+    	$this->redis->del('foo');
+    	$this->redis->del('bar');
+    }
+
+    public function testGetLastError() {
+    	// We shouldn't have any errors now
+    	$this->assertTrue($this->redis->getLastError() === NULL);
+
+    	// Throw some invalid lua at redis
+    	$this->redis->eval("not-a-lua-script");
+
+    	// Now we should have an error
+		$evalError = $this->redis->getLastError();
+		$this->assertTrue(strlen($evalError) > 0);
+
+		// test getLastError with a regular command
+		$this->redis->set('x', 'a');
+		$this->assertFalse($this->redis->incr('x'));
+		$incrError = $this->redis->getLastError();
+		$this->assertTrue($incrError !== $evalError); // error has changed
+		$this->assertTrue(strlen($incrError) > 0);
+
+		// clear error
+		$this->redis->clearLastError();
+		$this->assertTrue($this->redis->getLastError() === NULL);
+	}
+
+    // Helper function to compare nested results -- from the php.net array_diff page, I believe
+    private function array_diff_recursive($aArray1, $aArray2) {
+    	$aReturn = array();
+
+    	foreach ($aArray1 as $mKey => $mValue) {
+    		if (array_key_exists($mKey, $aArray2)) {
+    			if (is_array($mValue)) {
+    				$aRecursiveDiff = $this->array_diff_recursive($mValue, $aArray2[$mKey]);
+    				if (count($aRecursiveDiff)) {
+    					$aReturn[$mKey] = $aRecursiveDiff;
+    				}
+    			} else {
+    				if ($mValue != $aArray2[$mKey]) {
+    					$aReturn[$mKey] = $mValue;
+    				}
+    			}
+    		} else {
+    			$aReturn[$mKey] = $mValue;
+    		}
+    	}
+
+    	return $aReturn;
+    }
+
+    public function testScript() {
+
+		if (version_compare($this->version, "2.5.0", "lt")) {
+			$this->markTestSkipped();
+		}
+
+		// Flush any scripts we have
+		$this->assertTrue($this->redis->script('flush'));
+
+		// Silly scripts to test against
+		$s1_src = 'return 1';
+		$s1_sha = sha1($s1_src);
+		$s2_src = 'return 2';
+		$s2_sha = sha1($s2_src);
+		$s3_src = 'return 3';
+		$s3_sha = sha1($s3_src);
+
+    	// None should exist
+		$result = $this->redis->script('exists', $s1_sha, $s2_sha, $s3_sha);
+		$this->assertTrue(is_array($result) && count($result) == 3);
+		$this->assertTrue(is_array($result) && count(array_filter($result)) == 0);
+
+		// Load them up
+		$this->assertTrue($this->redis->script('load', $s1_src) == $s1_sha);
+		$this->assertTrue($this->redis->script('load', $s2_src) == $s2_sha);
+		$this->assertTrue($this->redis->script('load', $s3_src) == $s3_sha);
+
+		// They should all exist
+		$result = $this->redis->script('exists', $s1_sha, $s2_sha, $s3_sha);
+		$this->assertTrue(is_array($result) && count(array_filter($result)) == 3);
+    }
+
+    public function testEval() {
+
+		if (version_compare($this->version, "2.5.0", "lt")) {
+			$this->markTestSkipped();
+		}
+
+    	// Basic single line response tests
+    	$this->assertTrue(1 == $this->redis->eval('return 1'));
+    	$this->assertTrue(1.55 == $this->redis->eval("return '1.55'"));
+    	$this->assertTrue("hello, world" == $this->redis->eval("return 'hello, world'"));
+
+    	/*
+    	 * Keys to be incorporated into lua results
+    	 */
+
+		// Make a list
+		$this->redis->del('mylist');
+		$this->redis->rpush('mylist', 'a');
+		$this->redis->rpush('mylist', 'b');
+		$this->redis->rpush('mylist', 'c');
+
+		// Make a set
+		$this->redis->del('myset');
+		$this->redis->sadd('myset', 'd');
+		$this->redis->sadd('myset', 'e');
+		$this->redis->sadd('myset', 'f');
+
+		// Basic keys
+		$this->redis->set('key1', 'hello, world');
+		$this->redis->set('key2', 'hello again!');
+
+		// Use a script to return our list, and verify its response
+		$list = $this->redis->eval("return redis.call('lrange', 'mylist', 0, -1)");
+		$this->assertTrue($list === Array('a','b','c'));
+
+		// Use a script to return our set
+		$set = $this->redis->eval("return redis.call('smembers', 'myset')");
+		$this->assertTrue($set == Array('d','e','f'));
+
+		// Test an empty MULTI BULK response
+		$this->redis->del('not-any-kind-of-list');
+		$empty_resp = $this->redis->eval("return redis.call('lrange', 'not-any-kind-of-list', 0, -1)");
+		$this->assertTrue(is_array($empty_resp) && empty($empty_resp));
+
+		// Now test a nested reply
+		$nested_script = "
+			return {
+				1,2,3, {
+					redis.call('get', 'key1'),
+					redis.call('get', 'key2'),
+					redis.call('lrange', 'not-any-kind-of-list', 0, -1),
+					{
+						redis.call('smembers','myset'),
+						redis.call('lrange', 'mylist', 0, -1)
+					}
+				}
+			}
+		";
+
+		$expected = Array(
+			1, 2, 3, Array(
+				'hello, world',
+				'hello again!',
+				Array(),
+				Array(
+					Array('d','e','f'),
+					Array('a','b','c')
+				)
+			)
+		);
+
+		// Now run our script, and check our values against each other
+		$eval_result = $this->redis->eval($nested_script);
+		$this->assertTrue(is_array($eval_result) && count($this->array_diff_recursive($eval_result, $expected)) == 0);
+
+		/*
+		 * Nested reply wihin a multi/pipeline block
+		 */
+
+		$num_scripts = 10;
+
+		foreach(Array(Redis::PIPELINE, Redis::MULTI) as $mode) {
+			$this->redis->multi($mode);
+			for($i=0;$i<$num_scripts;$i++) {
+				$this->redis->eval($nested_script);
+			}
+			$replies = $this->redis->exec();
+
+			foreach($replies as $reply) {
+				$this->assertTrue(is_array($reply) && count($this->array_diff_recursive($reply, $expected)) == 0);
+			}
+		}
+
+		/*
+		 * KEYS/ARGV
+		 */
+
+		$args_script = "return {KEYS[1],KEYS[2],KEYS[3],ARGV[1],ARGV[2],ARGV[3]}";
+		$args_args   = Array('k1','k2','k3','v1','v2','v3');
+		$args_result = $this->redis->eval($args_script, $args_args, 3);
+		$this->assertTrue($args_result === $args_args);
+
+		// turn on key prefixing
+		$this->redis->setOption(Redis::OPT_PREFIX, 'prefix:');
+		$args_result = $this->redis->eval($args_script, $args_args, 3);
+
+		// Make sure our first three are prefixed
+		for($i=0;$i<count($args_result);$i++) {
+			if($i<3) {
+				// Should be prefixed
+				$this->assertTrue($args_result[$i] == 'prefix:' . $args_args[$i]);
+			} else {
+				// Should not be prefixed
+				$this->assertTrue($args_result[$i] == $args_args[$i]);
+			}
+		}
+    }
+
+    public function testEvalSHA() {
+
+		if (version_compare($this->version, "2.5.0", "lt")) {
+			$this->markTestSkipped();
+		}
+
+    	// Flush any loaded scripts
+    	$this->redis->script('flush');
+
+    	// Non existant script (but proper sha1), and a random (not) sha1 string
+    	$this->assertFalse($this->redis->evalsha(sha1(uniqid())));
+    	$this->assertFalse($this->redis->evalsha('some-random-data'));
+
+    	// Load a script
+    	$cb  = uniqid(); // To ensure the script is new
+    	$scr = "local cb='$cb' return 1";
+    	$sha = sha1($scr);
+
+    	// Run it when it doesn't exist, run it with eval, and then run it with sha1
+    	$this->assertTrue(false === $this->redis->evalsha($scr));
+    	$this->assertTrue(1 === $this->redis->eval($scr));
+    	$this->assertTrue(1 === $this->redis->evalsha($sha));
+    }
+
+    public function testUnserialize() {
+    	$vals = Array(
+    		1,1.5,'one',Array('this','is','an','array')
+    	);
+
+    	foreach(Array(Redis::SERIALIZER_PHP, Redis::SERIALIZER_IGBINARY) as $mode) {
+    		$vals_enc = Array();
+
+    		// Pass them through redis so they're serialized
+    		foreach($vals as $key => $val) {
+    			$this->redis->setOption(Redis::OPT_SERIALIZER, $mode);
+
+    			$key = "key" . ++$key;
+    			$this->redis->del($key);
+    			$this->redis->set($key, $val);
+
+    			// Clear serializer, get serialized value
+    			$this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE);
+    			$vals_enc[] = $this->redis->get($key);
+    		}
+
+    		// Run through our array comparing values
+    		for($i=0;$i<count($vals);$i++) {
+    			// reset serializer
+    			$this->redis->setOption(Redis::OPT_SERIALIZER, $mode);
+    			$this->assertTrue($vals[$i] == $this->redis->_unserialize($vals_enc[$i]));
+    			$this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE);
+    		}
+    	}
+    }
+
+    public function testPrefix() {
+    	// no prefix
+    	$this->redis->setOption(Redis::OPT_PREFIX, '');
+    	$this->assertTrue('key' == $this->redis->_prefix('key'));
+
+    	// with a prefix
+    	$this->redis->setOption(Redis::OPT_PREFIX, 'some-prefix:');
+    	$this->assertTrue('some-prefix:key' == $this->redis->_prefix('key'));
+
+    	// Clear prefix
+    	$this->redis->setOption(Redis::OPT_PREFIX, '');
+
+    }
+
+	public function testReconnectSelect() {
+		$key = 'reconnect-select';
+		$value = 'Has been set!';
+
+		$original_cfg = $this->redis->config('GET', 'timeout');
+
+		// Make sure the default DB doesn't have the key.
+		$this->redis->select(0);
+		$this->redis->delete($key);
+
+		// Set the key on a different DB.
+		$this->redis->select(5);
+		$this->redis->set($key, $value);
+
+		// Time out after 1 second.
+		$this->redis->config('SET', 'timeout', '1');
+
+		// Wait for the timeout. With Redis 2.4, we have to wait up to 10 s
+		// for the server to close the connection, regardless of the timeout
+		// setting.
+		sleep(11);
+
+		// Make sure we're still using the same DB.
+		$this->assertEquals($value, $this->redis->get($key));
+
+		// Revert the setting.
+		$this->redis->config('SET', 'timeout', $original_cfg['timeout']);
+	}
+
+	public function testTime() {
+
+		if (version_compare($this->version, "2.5.0", "lt")) {
+			$this->markTestSkipped();
+		}
+
+		$time_arr = $this->redis->time();
+		$this->assertTrue(is_array($time_arr) && count($time_arr) == 2 &&
+				          strval(intval($time_arr[0])) === strval($time_arr[0]) &&
+						  strval(intval($time_arr[1])) === strval($time_arr[1]));
+	}
 }
 
-$suite  = new PHPUnit_TestSuite("Redis_Test");
-$result = PHPUnit::run($suite);
-
-echo $result->toString();
-
+exit(TestSuite::run("Redis_Test"));
 
 ?>

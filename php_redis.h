@@ -24,13 +24,16 @@
 #define PHP_REDIS_H
 
 PHP_METHOD(Redis, __construct);
+PHP_METHOD(Redis, __destruct);
 PHP_METHOD(Redis, connect);
 PHP_METHOD(Redis, pconnect);
 PHP_METHOD(Redis, close);
 PHP_METHOD(Redis, ping);
+PHP_METHOD(Redis, echo);
 PHP_METHOD(Redis, get);
 PHP_METHOD(Redis, set);
 PHP_METHOD(Redis, setex);
+PHP_METHOD(Redis, psetex);
 PHP_METHOD(Redis, setnx);
 PHP_METHOD(Redis, getSet);
 PHP_METHOD(Redis, randomKey);
@@ -41,6 +44,7 @@ PHP_METHOD(Redis, exists);
 PHP_METHOD(Redis, delete);
 PHP_METHOD(Redis, incr);
 PHP_METHOD(Redis, incrBy);
+PHP_METHOD(Redis, incrByFloat);
 PHP_METHOD(Redis, decr);
 PHP_METHOD(Redis, decrBy);
 PHP_METHOD(Redis, type);
@@ -86,6 +90,7 @@ PHP_METHOD(Redis, sUnionStore);
 PHP_METHOD(Redis, sDiff);
 PHP_METHOD(Redis, sDiffStore);
 PHP_METHOD(Redis, setTimeout);
+PHP_METHOD(Redis, pexpire);
 PHP_METHOD(Redis, save);
 PHP_METHOD(Redis, bgSave);
 PHP_METHOD(Redis, lastSave);
@@ -94,6 +99,7 @@ PHP_METHOD(Redis, flushAll);
 PHP_METHOD(Redis, dbSize);
 PHP_METHOD(Redis, auth);
 PHP_METHOD(Redis, ttl);
+PHP_METHOD(Redis, pttl);
 PHP_METHOD(Redis, persist);
 PHP_METHOD(Redis, info);
 PHP_METHOD(Redis, resetStat);
@@ -116,9 +122,26 @@ PHP_METHOD(Redis, zIncrBy);
 PHP_METHOD(Redis, zInter);
 PHP_METHOD(Redis, zUnion);
 PHP_METHOD(Redis, expireAt);
+PHP_METHOD(Redis, pexpireAt);
 PHP_METHOD(Redis, bgrewriteaof);
 PHP_METHOD(Redis, slaveof);
 PHP_METHOD(Redis, object);
+PHP_METHOD(Redis, bitop);
+PHP_METHOD(Redis, bitcount);
+
+PHP_METHOD(Redis, eval);
+PHP_METHOD(Redis, evalsha);
+PHP_METHOD(Redis, script);
+PHP_METHOD(Redis, dump);
+PHP_METHOD(Redis, restore);
+PHP_METHOD(Redis, migrate);
+
+PHP_METHOD(Redis, time);
+
+PHP_METHOD(Redis, getLastError);
+PHP_METHOD(Redis, clearLastError);
+PHP_METHOD(Redis, _prefix);
+PHP_METHOD(Redis, _unserialize);
 
 PHP_METHOD(Redis, mset);
 PHP_METHOD(Redis, msetnx);
@@ -135,6 +158,7 @@ PHP_METHOD(Redis, hVals);
 PHP_METHOD(Redis, hGetAll);
 PHP_METHOD(Redis, hExists);
 PHP_METHOD(Redis, hIncrBy);
+PHP_METHOD(Redis, hIncrByFloat);
 PHP_METHOD(Redis, hMset);
 PHP_METHOD(Redis, hMget);
 
@@ -148,19 +172,23 @@ PHP_METHOD(Redis, pipeline);
 
 PHP_METHOD(Redis, publish);
 PHP_METHOD(Redis, subscribe);
+PHP_METHOD(Redis, psubscribe);
 PHP_METHOD(Redis, unsubscribe);
+PHP_METHOD(Redis, punsubscribe);
 
 PHP_METHOD(Redis, getOption);
 PHP_METHOD(Redis, setOption);
 
-/* SONETICA START */
+/* TOPFACE START */
 PHP_METHOD(Redis, isValidKey);
 PHP_METHOD(Redis, qPush);
 PHP_METHOD(Redis, qPoll);
 PHP_METHOD(Redis, qInfo);
 PHP_METHOD(Redis, getMultipleDelayed);
 PHP_METHOD(Redis, fetchMultiBulk);
-/* SONETICA END */
+/* TOPFACE END */
+
+PHP_METHOD(Redis, config);
 
 #ifdef PHP_WIN32
 #define PHP_REDIS_API __declspec(dllexport)
@@ -181,10 +209,15 @@ PHP_MINFO_FUNCTION(redis);
 PHPAPI int redis_connect(INTERNAL_FUNCTION_PARAMETERS, int persistent);
 PHPAPI void redis_atomic_increment(INTERNAL_FUNCTION_PARAMETERS, char *keyword, int count);
 PHPAPI int generic_multiple_args_cmd(INTERNAL_FUNCTION_PARAMETERS, char *keyword, int keyword_len,
-									 int min_argc, RedisSock **redis_sock, int has_timeout, int all_keys);
+									 int min_argc, RedisSock **redis_sock, int has_timeout, int all_keys, int can_serialize);
 PHPAPI void generic_sort_cmd(INTERNAL_FUNCTION_PARAMETERS, char *sort, int use_alpha);
+typedef void (*ResultCallback)(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
+PHPAPI void generic_empty_cmd_impl(INTERNAL_FUNCTION_PARAMETERS, char *cmd, int cmd_len, ResultCallback result_callback);
 PHPAPI void generic_empty_cmd(INTERNAL_FUNCTION_PARAMETERS, char *cmd, int cmd_len, ...);
 PHPAPI void generic_empty_long_cmd(INTERNAL_FUNCTION_PARAMETERS, char *cmd, int cmd_len, ...);
+
+PHPAPI void generic_subscribe_cmd(INTERNAL_FUNCTION_PARAMETERS, char *sub_cmd);
+PHPAPI void generic_unsubscribe_cmd(INTERNAL_FUNCTION_PARAMETERS, char *unsub_cmd);
 
 PHPAPI void array_zip_values_and_scores(RedisSock *redis_sock, zval *z_tab, int use_atof TSRMLS_DC);
 PHPAPI int redis_response_enqueued(RedisSock *redis_sock TSRMLS_DC);
@@ -221,7 +254,7 @@ extern zend_module_entry redis_module_entry;
 
 #define phpext_redis_ptr redis_module_ptr
 
-#define PHP_REDIS_VERSION "2.1.3-sonetica"
+#define PHP_REDIS_VERSION "2.2.2-topface"
 
 #endif
 

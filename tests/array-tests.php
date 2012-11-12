@@ -1,6 +1,6 @@
 <?php
-require_once 'PHPUnit.php';
 
+require_once(dirname($_SERVER['PHP_SELF'])."/test.php");
 echo "Redis Array tests.\n\n";
 
 function custom_hash($str) {
@@ -12,7 +12,7 @@ function custom_hash($str) {
 	return $str;
 }
 
-class Redis_Array_Test extends PHPUnit_TestCase
+class Redis_Array_Test extends TestSuite
 {
 	private $strings;
 	public $ra = NULL;
@@ -93,9 +93,38 @@ class Redis_Array_Test extends PHPUnit_TestCase
 		$this->checkCommonLocality();
 	}
 
+	public function customDistributor($key)
+	{
+		$a = unpack("N*", md5($key, true));
+		global $newRing;
+		$pos = abs($a[1]) % count($newRing);
+
+		return $pos;
+	}
+
+	public function testKeyDistributor()
+	{
+		global $newRing, $useIndex;
+		$this->ra = new RedisArray($newRing, array(
+				'index' => $useIndex,
+				'function' => 'custom_hash',
+				'distributor' => array($this, "customDistributor")));
+
+		// custom key distribution function.
+		$this->addData('fb'.rand());
+
+		// check that they're all on the expected node.
+		$lastNode = NULL;
+		foreach($this->data as $k => $v) {
+			$node = $this->ra->_target($k);
+			$pos = $this->customDistributor($k);
+			$this->assertTrue($node === $newRing[$pos]);
+		}
+	}
+
 }
 
-class Redis_Rehashing_Test extends PHPUnit_TestCase
+class Redis_Rehashing_Test extends TestSuite
 {
 
 	public $ra = NULL;
@@ -260,13 +289,21 @@ class Redis_Rehashing_Test extends PHPUnit_TestCase
 		$this->ra->_rehash(); // this will redistribute the keys
 	}
 
+	public function testRehashWithCallback() {
+		$total = 0;
+		$this->ra->_rehash(function ($host, $count) use (&$total) {
+			$total += $count;
+		});
+		$this->assertTrue($total > 0);
+	}
+
 	public function testReadRedistributedKeys() {
 		$this->readAllvalues(); // we shouldn't have any missed reads now.
 	}
 }
 
 // Test auto-migration of keys
-class Redis_Auto_Rehashing_Test extends PHPUnit_TestCase {
+class Redis_Auto_Rehashing_Test extends TestSuite {
 
 	public $ra = NULL;
 
@@ -336,7 +373,7 @@ class Redis_Auto_Rehashing_Test extends PHPUnit_TestCase {
 }
 
 // Test node-specific multi/exec
-class Redis_Multi_Exec_Test extends PHPUnit_TestCase {
+class Redis_Multi_Exec_Test extends TestSuite {
 
 	public $ra = NULL;
 
@@ -426,6 +463,38 @@ class Redis_Multi_Exec_Test extends PHPUnit_TestCase {
 		$this->assertTrue($this->ra->exists('1_{employee:joe}_salary') === FALSE);
 	}
 
+	public function testDiscard() {
+		/* phpredis issue #87 */
+		$key = 'test_err';
+
+		$this->assertTrue($this->ra->set($key, 'test'));
+		$this->assertTrue('test' === $this->ra->get($key));
+
+		$this->ra->watch($key);
+
+		// After watch, same
+		$this->assertTrue('test' === $this->ra->get($key));
+
+		// change in a multi/exec block.
+		$ret = $this->ra->multi($this->ra->_target($key))->set($key, 'test1')->exec();
+		$this->assertTrue($ret === array(true));
+
+		// Get after exec, 'test1':
+		$this->assertTrue($this->ra->get($key) === 'test1');
+
+		$this->ra->watch($key);
+
+		// After second watch, still test1.
+		$this->assertTrue($this->ra->get($key) === 'test1');
+
+		$ret = $this->ra->multi($this->ra->_target($key))->set($key, 'test2')->discard();
+		// Ret after discard: NULL";
+		$this->assertTrue($ret === NULL);
+
+		// Get after discard, unchanged:
+		$this->assertTrue($this->ra->get($key) === 'test1');
+	}
+
 }
 
 
@@ -437,9 +506,7 @@ function run_tests($className) {
 		$serverList = array('localhost:6379', 'localhost:6380', 'localhost:6381', 'localhost:6382');
 
 		// run
-		$suite  = new PHPUnit_TestSuite($className);
-		$result = PHPUnit::run($suite);
-		echo $result->toString();
+		TestSuite::run($className);
 }
 
 define('REDIS_ARRAY_DATA_SIZE', 1000);

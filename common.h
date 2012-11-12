@@ -22,9 +22,18 @@
 #define REDIS_ZSET 4
 #define REDIS_HASH 5
 
+/* reply types */
+typedef enum _REDIS_REPLY_TYPE {
+	TYPE_LINE      = '+',
+	TYPE_INT       = ':',
+	TYPE_ERR       = '-',
+	TYPE_BULK      = '$',
+	TYPE_MULTIBULK = '*'
+} REDIS_REPLY_TYPE;
+
 /* options */
 #define REDIS_OPT_SERIALIZER		1
-#define REDIS_OPT_PREFIX		2
+#define REDIS_OPT_PREFIX		    2
 
 /* serializers */
 #define REDIS_SERIALIZER_NONE		0
@@ -150,9 +159,11 @@ typedef struct {
     int            failed;
     int            status;
     int            persistent;
+    int            watching;
     char           *persistent_id;
 
     int            serializer;
+    long           dbNumber;
 
     char           *prefix;
     int            prefix_len;
@@ -163,6 +174,9 @@ typedef struct {
 
     request_item   *pipeline_head;
     request_item   *pipeline_current;
+
+    char           *err;
+    int            err_len;
 } RedisSock;
 /* }}} */
 

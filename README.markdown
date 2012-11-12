@@ -11,10 +11,11 @@ Installing/Configuring
 
 <pre>
 phpize
-./configure
+./configure [--enable-redis-igbinary]
 make && make install
 </pre>
 
+If you would like phpredis to serialize your data using the igbinary library, run configure with `--enable-redis-igbinary`.
 `make install` copies `redis.so` to an appropriate location, but you still need to enable the module in the PHP config file. To do so, either edit your php.ini or add a redis.ini file in `/etc/php5/conf.d` with the following contents: `extension=redis.so`.
 
 You can generate a debian package for PHP5, accessible from Apache 2 by running `./mkdeb-apache2.sh` or with `dpkg-buildpackage` or `svn-buildpackage`.
@@ -34,6 +35,10 @@ LDFLAGS="-arch i386 -arch x86_64 -bind_at_load"
 export CFLAGS CXXFLAGS LDFLAGS CCFLAGS MACOSX_DEPLOYMENT_TARGET
 </pre>
 
+If that still fails and you are running Zend Server CE, try this right before "make":
+<pre>./configure CFLAGS="-arch i386"</pre>
+Taken from [Compiling phpredis on Zend Server CE/OSX ](http://www.tumblr.com/tagged/phpredis).
+
 See also: [Install Redis & PHP Extension PHPRedis with Macports](http://www.lecloud.net/post/3378834922/install-redis-php-extension-phpredis-with-macports).
 
 Session handler (new)
@@ -52,6 +57,7 @@ session.save_path = "tcp://host1:6379?weight=1, tcp://host2:6379?weight=2&timeou
 * persistent (integer, should be 1 or 0): defines if a persistent connection should be used. **(experimental setting)**
 * prefix (string, defaults to "PHPREDIS_SESSION:"): used as a prefix to the Redis key in which the session is stored. The key is composed of the prefix followed by the session ID.
 * auth (string, empty by default): used to authenticate with the Redis server prior to sending commands.
+* database (integer): selects a different database.
 
 Sessions have a lifetime expressed in seconds and stored in the INI variable "session.gc_maxlifetime". You can change it with [`ini_set()`](http://php.net/ini_set).
 The session handler requires a version of Redis with the `SETEX` command (at least 2.0).
@@ -182,7 +188,6 @@ Parameter value.
 $redis->getOption(Redis::OPT_SERIALIZER);	// return Redis::SERIALIZER_NONE, Redis::SERIALIZER_PHP, or Redis::SERIALIZER_IGBINARY.
 </pre>
 
-
 ## ping
 ##### *Description*
 
@@ -195,6 +200,20 @@ Check the current connection status
 ##### *Return Value*
 
 *STRING*: `+PONG` on success. Throws a RedisException object on connectivity error, as described above.
+
+
+## echo
+##### *Description*
+
+Sends a string to Redis, which replies with the same string
+
+##### *Parameters*
+
+*STRING*: The message to send.
+
+##### *Return Value*
+
+*STRING*: the same message.
 
 
 ## get
@@ -235,10 +254,10 @@ Set the string value in argument as value of the key.
 $redis->set('key', 'value');
 </pre>
 
-## setex
+## setex, psetex
 ##### Description
 
-Set the string value in argument as value of the key, with a time to live.
+Set the string value in argument as value of the key, with a time to live. PSETEX uses a TTL in milliseconds.
 
 ##### Parameters
 *Key*
@@ -252,6 +271,7 @@ Set the string value in argument as value of the key, with a time to live.
 
 <pre>
 $redis->setex('key', 3600, 'value'); // sets key → value, with 1h TTL.
+$redis->psetex('key', 100, 'value'); // sets key → value, with 0.1 sec TTL.
 </pre>
 ## setnx
 ##### Description
@@ -357,6 +377,20 @@ function f($redis, $chan, $msg) {
 $redis->subscribe(array('chan-1', 'chan-2', 'chan-3'), 'f'); // subscribe to 3 chans
 </pre>
 
+## psubscribe
+##### Description
+Subscribe to channels by pattern
+##### Parameters
+*patterns*: An array of patterns to match
+*callback*: Either a string or an array with an object and method.  The callback will get four arguments ($redis, $pattern, $channel, $message)
+##### Example
+<pre>
+function psubscribe($redis, $pattern, $chan, $msg) {
+	echo "Pattern: $pattern\n";
+	echo "Channel: $chan\n";
+	echo "Payload: $msg\n";
+}
+</pre>
 
 ## publish
 ##### Description
@@ -403,6 +437,24 @@ $redis->incr('key1'); /* 4 */
 $redis->incrBy('key1', 10); /* 14 */
 </pre>
 
+## incrByFloat
+##### Description
+Increment the key with floating point precision.
+##### Parameters
+*key*  
+*value*: (float) value that will be added to the key  
+##### Return value
+*FLOAT* the new value
+##### Examples
+<pre>
+$redis->incrByFloat('key1', 1.5); /* key1 didn't exist, so it will now be 1.5 */
+
+
+$redis->incrByFloat('key1', 1.5); /* 3 */
+$redis->incrByFloat('key1', -1.5); /* 1.5 */
+$redis->incrByFloat('key1', 2.5); /* 3.5 */
+</pre>
+
 ## decr, decrBy
 ##### Description
 Decrement the number stored at key by one. If the second argument is filled, it will be used as the integer value of the decrement.
@@ -421,7 +473,7 @@ $redis->decr('key1'); /* -3 */
 $redis->decrBy('key1', 10); /* -13 */
 </pre>
 
-## getMultiple
+## mGet, getMultiple
 ##### Description
 Get the values of all the specified keys. If one or more keys dont exist, the array will contain `FALSE` at the position of the key.
 ##### Parameters
@@ -433,8 +485,8 @@ Get the values of all the specified keys. If one or more keys dont exist, the ar
 $redis->set('key1', 'value1');
 $redis->set('key2', 'value2');
 $redis->set('key3', 'value3');
-$redis->getMultiple(array('key1', 'key2', 'key3')); /* array('value1', 'value2', 'value3');
-$redis->getMultiple(array('key0', 'key1', 'key5')); /* array(`FALSE`, 'value2', `FALSE`);
+$redis->mGet(array('key1', 'key2', 'key3')); /* array('value1', 'value2', 'value3');
+$redis->mGet(array('key0', 'key1', 'key5')); /* array(`FALSE`, 'value2', `FALSE`);
 </pre>
 
 ## lPush
@@ -525,7 +577,7 @@ $redis->lPop('key1'); /* key1 => [ 'B', 'C' ] */
 
 ## rPop
 ##### *Description*
-Returns and removes the first element of the list.
+Returns and removes the last element of the list.
 ##### *Parameters*
 *key*
 ##### *Return value*
@@ -754,12 +806,12 @@ Adds a value to the set value stored at key. If this value is already in the set
 *value*
 
 ##### *Return value*
-*BOOL* `TRUE` if value didn't exist and was added successfully, `FALSE` if the value is already present.
+*LONG* the number of elements added to the set.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); /* TRUE, 'key1' => {'set1'} */
-$redis->sAdd('key1' , 'set2'); /* TRUE, 'key1' => {'set1', 'set2'}*/
-$redis->sAdd('key1' , 'set2'); /* FALSE, 'key1' => {'set1', 'set2'}*/
+$redis->sAdd('key1' , 'member1'); /* 1, 'key1' => {'member1'} */
+$redis->sAdd('key1' , 'member2', 'member3'); /* 2, 'key1' => {'member1', 'member2', 'member3'}*/
+$redis->sAdd('key1' , 'member2'); /* 0, 'key1' => {'member1', 'member2', 'member3'}*/
 </pre>
 
 ## sRem, sRemove
@@ -769,13 +821,13 @@ Removes the specified member from the set value stored at key.
 *key*
 *member*
 ##### *Return value*
-*BOOL* `TRUE` if the member was present in the set, `FALSE` if it didn't.
+*LONG* The number of elements removed from the set.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); 
-$redis->sAdd('key1' , 'set2'); 
-$redis->sAdd('key1' , 'set3'); /* 'key1' => {'set1', 'set2', 'set3'}*/
-$redis->sRem('key1', 'set2'); /* 'key1' => {'set1', 'set3'} */
+$redis->sAdd('key1' , 'member1');
+$redis->sAdd('key1' , 'member2');
+$redis->sAdd('key1' , 'member3'); /* 'key1' => {'member1', 'member2', 'member3'}*/
+$redis->sRem('key1', 'member2', 'member3'); /*return 2. 'key1' => {'member1'} */
 </pre>
 
 ## sMove
@@ -789,13 +841,13 @@ Moves the specified member from the set at srcKey to the set at dstKey.
 *BOOL* If the operation is successful, return `TRUE`. If the srcKey and/or dstKey didn't exist, and/or the member didn't exist in srcKey, `FALSE` is returned.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set11'); 
-$redis->sAdd('key1' , 'set12'); 
-$redis->sAdd('key1' , 'set13'); /* 'key1' => {'set11', 'set12', 'set13'}*/
-$redis->sAdd('key2' , 'set21'); 
-$redis->sAdd('key2' , 'set22'); /* 'key2' => {'set21', 'set22'}*/
-$redis->sMove('key1', 'key2', 'set13'); /* 'key1' =>  {'set11', 'set12'} */
-					/* 'key2' =>  {'set21', 'set22', 'set13'} */
+$redis->sAdd('key1' , 'member11');
+$redis->sAdd('key1' , 'member12');
+$redis->sAdd('key1' , 'member13'); /* 'key1' => {'member11', 'member12', 'member13'}*/
+$redis->sAdd('key2' , 'member21');
+$redis->sAdd('key2' , 'member22'); /* 'key2' => {'member21', 'member22'}*/
+$redis->sMove('key1', 'key2', 'member13'); /* 'key1' =>  {'member11', 'member12'} */
+					/* 'key2' =>  {'member21', 'member22', 'member13'} */
 
 </pre>
 
@@ -810,12 +862,12 @@ Checks if `value` is a member of the set stored at the key `key`.
 *BOOL* `TRUE` if `value` is a member of the set at key `key`, `FALSE` otherwise.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); 
-$redis->sAdd('key1' , 'set2'); 
-$redis->sAdd('key1' , 'set3'); /* 'key1' => {'set1', 'set2', 'set3'}*/
+$redis->sAdd('key1' , 'member1');
+$redis->sAdd('key1' , 'member2');
+$redis->sAdd('key1' , 'member3'); /* 'key1' => {'member1', 'member2', 'member3'}*/
 
-$redis->sIsMember('key1', 'set1'); /* TRUE */
-$redis->sIsMember('key1', 'setX'); /* FALSE */
+$redis->sIsMember('key1', 'member1'); /* TRUE */
+$redis->sIsMember('key1', 'memberX'); /* FALSE */
 
 </pre>
 
@@ -828,9 +880,9 @@ Returns the cardinality of the set identified by key.
 *LONG* the cardinality of the set identified by key, 0 if the set doesn't exist.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); 
-$redis->sAdd('key1' , 'set2'); 
-$redis->sAdd('key1' , 'set3'); /* 'key1' => {'set1', 'set2', 'set3'}*/
+$redis->sAdd('key1' , 'member1');
+$redis->sAdd('key1' , 'member2');
+$redis->sAdd('key1' , 'member3'); /* 'key1' => {'member1', 'member2', 'member3'}*/
 $redis->sCard('key1'); /* 3 */
 $redis->sCard('keyX'); /* 0 */
 </pre>
@@ -845,11 +897,11 @@ Removes and returns a random element from the set value at Key.
 *Bool* `FALSE` if set identified by key is empty or doesn't exist.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); 
-$redis->sAdd('key1' , 'set2'); 
-$redis->sAdd('key1' , 'set3'); /* 'key1' => {'set3', 'set1', 'set2'}*/
-$redis->sPop('key1'); /* 'set1', 'key1' => {'set3', 'set2'} */
-$redis->sPop('key1'); /* 'set3', 'key1' => {'set2'} */
+$redis->sAdd('key1' , 'member1');
+$redis->sAdd('key1' , 'member2');
+$redis->sAdd('key1' , 'member3'); /* 'key1' => {'member3', 'member1', 'member2'}*/
+$redis->sPop('key1'); /* 'member1', 'key1' => {'member3', 'member2'} */
+$redis->sPop('key1'); /* 'member3', 'key1' => {'member2'} */
 </pre>
 
 ## sRandMember
@@ -862,11 +914,11 @@ Returns a random element from the set value at Key, without removing it.
 *Bool* `FALSE` if set identified by key is empty or doesn't exist.
 ##### *Example*
 <pre>
-$redis->sAdd('key1' , 'set1'); 
-$redis->sAdd('key1' , 'set2'); 
-$redis->sAdd('key1' , 'set3'); /* 'key1' => {'set3', 'set1', 'set2'}*/
-$redis->sRandMember('key1'); /* 'set1', 'key1' => {'set3', 'set1', 'set2'} */
-$redis->sRandMember('key1'); /* 'set3', 'key1' => {'set3', 'set1', 'set2'} */
+$redis->sAdd('key1' , 'member1');
+$redis->sAdd('key1' , 'member2');
+$redis->sAdd('key1' , 'member3'); /* 'key1' => {'member3', 'member1', 'member2'}*/
+$redis->sRandMember('key1'); /* 'member1', 'key1' => {'member3', 'member1', 'member2'} */
+$redis->sRandMember('key1'); /* 'member3', 'key1' => {'member3', 'member1', 'member2'} */
 </pre>
 
 ## sInter
@@ -1222,9 +1274,9 @@ $redis->get('x'); 	// → `FALSE`
 ##### *Description*
 Same as rename, but will not replace a key if the destination already exists. This is the same behaviour as setNx.
 
-## setTimeout, expire
+## setTimeout, expire, pexpire
 ##### *Description*
-Sets an expiration date (a timeout) on an item.
+Sets an expiration date (a timeout) on an item. pexpire requires a TTL in milliseconds.
 
 ##### *Parameters*
 *Key*: key. The key that will disappear.
@@ -1241,9 +1293,9 @@ sleep(5);				// wait 5 seconds
 $redis->get('x'); 		// will return `FALSE`, as 'x' has expired.
 </pre>
 
-## expireAt
+## expireAt, pexpireAt
 ##### *Description*
-Sets an expiration date (a timestamp) on an item.
+Sets an expiration date (a timestamp) on an item. pexpireAt requires a timestamp in milliseconds.
 
 ##### *Parameters*
 *Key*: key. The key that will disappear.
@@ -1543,6 +1595,29 @@ $redis->setBit('key', 7, 1); /* returns 0 */
 $redis->get('key'); /* chr(0x2f) = "/" = b("0010 1111") */
 </pre>
 
+## bitop
+##### *Description*
+Bitwise operation on multiple keys.
+
+##### *Parameters*
+*operation*: either "AND", "OR", "NOT", "XOR"  
+*ret_key*: return key  
+*key1*  
+*key2...*  
+
+##### *Return value*
+*LONG*: The size of the string stored in the destination key.
+
+## bitcount
+##### *Description*
+Count bits in a string.
+
+##### *Parameters*
+*key*  
+
+##### *Return value*
+*LONG*: The number of bits set to 1 in the value behind the input key.
+
 ## flushDB
 
 ##### *Description*
@@ -1608,7 +1683,9 @@ var_dump($redis->sort('s', array('sort' => 'desc', 'store' => 'out'))); // (int)
 
 ## info
 ##### *Description*
-Returns an associative array of strings and integers, with the following keys:
+Returns an associative array from REDIS that provides information about the server.  Passing
+no arguments to INFO will call the standard REDIS INFO command, which returns information such
+as the following:
 
 * redis_version
 * arch_bits
@@ -1624,13 +1701,17 @@ Returns an associative array of strings and integers, with the following keys:
 * total_commands_processed
 * role
 
+You can pass a variety of options to INFO (per the Redis documentation), which will modify what is
+returned.
 
 ##### *Parameters*
-None.
+*option*: The option to provide redis (e.g. "COMMANDSTATS", "CPU")
 
 ##### *Example*
 <pre>
-$redis->info();
+$redis->info(); /* standard redis INFO command */
+$redis->info("COMMANDSTATS"); /* Information on the commands that have been run (>=2.6 only)
+$redis->info("CPU"); /* just CPU information from Redis INFO */
 </pre>
 
 ## resetStat
@@ -1657,9 +1738,9 @@ None.
 $redis->resetStat();
 </pre>
 
-## ttl
+## ttl, pttl
 ##### *Description*
-Returns the time to live left for a given key, in seconds. If the key doesn't exist, `FALSE` is returned.
+Returns the time to live left for a given key, in seconds. If the key doesn't exist, `FALSE` is returned. pttl returns a time in milliseconds.
 
 ##### *Parameters*
 *Key*: key
@@ -2029,8 +2110,8 @@ $redis->zAdd('k2', 3, 'val3');
 $redis->zUnion('ko1', array('k1', 'k2')); /* 4, 'ko1' => array('val0', 'val1', 'val2', 'val3') */
 
 /* Weighted zUnion */
-$redis->zUnion('ko2', array('k1', 'k2'), array(1, 1)); /* 4, 'ko1' => array('val0', 'val1', 'val2', 'val3') */
-$redis->zUnion('ko3', array('k1', 'k2'), array(5, 1)); /* 4, 'ko1' => array('val0', 'val2', 'val3', 'val1') */
+$redis->zUnion('ko2', array('k1', 'k2'), array(1, 1)); /* 4, 'ko2' => array('val0', 'val1', 'val2', 'val3') */
+$redis->zUnion('ko3', array('k1', 'k2'), array(5, 1)); /* 4, 'ko3' => array('val0', 'val2', 'val3', 'val1') */
 </pre>
 
 ## zInter
@@ -2077,9 +2158,9 @@ $redis->zInter('ko4', array('k1', 'k2'), array(1, 5), 'max'); /* 2, 'ko4' => arr
 ##### *Description*
 Adds a value to the hash stored at key. If this value is already in the hash, `FALSE` is returned.  
 ##### *Parameters*
-*key*
-*hashKey*
-*value*
+*key*  
+*hashKey*  
+*value*  
 
 ##### *Return value*
 *LONG* `1` if value didn't exist and was added successfully, `0` if the value was already present and was replaced, `FALSE` if there was an error.
@@ -2112,8 +2193,8 @@ $redis->hSetNx('h', 'key1', 'world'); /* FALSE, 'key1' => 'hello' in the hash at
 ##### *Description*
 Gets a value from the hash stored at key. If the hash table doesn't exist, or the key doesn't exist, `FALSE` is returned.  
 ##### *Parameters*
-*key*
-*hashKey*
+*key*  
+*hashKey*  
 
 ##### *Return value*
 *STRING* The value, if the command executed successfully
@@ -2140,8 +2221,8 @@ $redis->hLen('h'); /* returns 2 */
 ##### *Description*
 Removes a value from the hash stored at key. If the hash table doesn't exist, or the key doesn't exist, `FALSE` is returned.  
 ##### *Parameters*
-*key*
-*hashKey*
+*key*  
+*hashKey*  
 
 ##### *Return value*
 *BOOL* `TRUE` in case of success, `FALSE` in case of failure
@@ -2283,6 +2364,23 @@ $redis->hIncrBy('h', 'x', 2); /* returns 2: h[x] = 2 now. */
 $redis->hIncrBy('h', 'x', 1); /* h[x] ← 2 + 1. Returns 3 */
 </pre>
 
+## hIncrByFloat
+##### Description
+Increments the value of a hash member by the provided float value
+##### Parameters
+*key*  
+*member*  
+*value*: (float) value that will be added to the member's value  
+##### Return value
+*FLOAT* the new value
+##### Examples
+<pre>
+$redis->delete('h');
+$redis->hIncrByFloat('h','x', 1.5); /* returns 1.5: h[x] = 1.5 now */
+$redis->hIncrByFLoat('h', 'x', 1.5); /* returns 3.0: h[x] = 3.0 now */
+$redis->hIncrByFloat('h', 'x', -3.0); /* returns 0.0: h[x] = 0.0 now */
+</pre>
+
 ## hMset
 ##### Description
 Fills in a whole hash. Non-string values are converted to string, using the standard `(string)` cast. NULL values are stored as empty strings.
@@ -2300,7 +2398,7 @@ $redis->hIncrBy('user:1', 'salary', 100); // Joe earns 100 more now.
 
 ## hMGet
 ##### Description
-Retirieve the values associated to the specified fields in the hash.
+Retrieve the values associated to the specified fields in the hash.
 ##### Parameters
 *key*  
 *memberKeys* Array  
@@ -2312,4 +2410,189 @@ $redis->delete('h');
 $redis->hSet('h', 'field1', 'value1');
 $redis->hSet('h', 'field2', 'value2');
 $redis->hmGet('h', array('field1', 'field2')); /* returns array('field1' => 'value1', 'field2' => 'value2') */
+</pre>
+
+## config
+##### Description
+Get or Set the redis config keys.
+##### Parameters
+*operation* (string) either `GET` or `SET`  
+*key* string for `SET`, glob-pattern for `GET`. See http://redis.io/commands/config-get for examples.  
+*value* optional string (only for `SET`)
+##### Return value
+*Associative array* for `GET`, key -> value  
+*bool* for `SET`
+##### Examples
+<pre>
+$redis->config("GET", "*max-*-entries*");
+$redis->config("SET", "dir", "/var/run/redis/dumps/");
+</pre>
+
+## eval
+##### Description
+Evaluate a LUA script serverside
+##### Parameters
+*script* string.  
+*args* array, optional.  
+*num_keys* int, optional.  
+##### Return value
+Mixed.  What is returned depends on what the LUA script itself returns, which could be a scalar value (int/string), or an array.
+Arrays that are returned can also contain other arrays, if that's how it was set up in your LUA script.  If there is an error
+executing the LUA script, the getLastError() function can tell you the message that came back from Redis (e.g. compile error).
+##### Examples
+<pre>
+$redis->eval("return 1"); // Returns an integer: 1
+$redis->eval("return {1,2,3}"); // Returns Array(1,2,3)
+$redis->del('mylist');
+$redis->rpush('mylist','a');
+$redis->rpush('mylist','b');
+$redis->rpush('mylist','c');
+// Nested response:  Array(1,2,3,Array('a','b','c'));
+$redis->eval("return {1,2,3,redis.call('lrange','mylist',0,-1)}}");
+</pre>
+
+## evalSha
+##### Description
+Evaluate a LUA script serverside, from the SHA1 hash of the script instead of the script itself.  In order to run this command Redis
+will have to have already loaded the script, either by running it or via the SCRIPT LOAD command.
+##### Parameters
+*script_sha* string.  The sha1 encoded hash of the script you want to run.  
+*args* array, optional.  Arguments to pass to the LUA script.  
+*num_keys* int, optional.  The number of arguments that should go into the KEYS array, vs. the ARGV array when Redis spins the script  
+##### Return value
+Mixed.  See EVAL
+##### Examples
+<pre>
+$script = 'return 1';
+$sha = $redis->script('load', $script);
+$redis->evalSha($sha); // Returns 1
+</pre>
+
+## script
+##### Description
+Execute the Redis SCRIPT command to perform various operations on the scripting subsystem.
+##### Usage
+<pre>
+$redis->script('load', $script);
+$redis->script('flush');
+$redis->script('kill');
+$redis->script('exists', $script1, [$script2, $script3, ...]);
+</pre>
+##### Return value
+* SCRIPT LOAD will return the SHA1 hash of the passed script on success, and FALSE on failure.
+* SCRIPT FLUSH should always return TRUE
+* SCRIPT KILL will return true if a script was able to be killed and false if not
+* SCRIPT EXISTS will return an array with TRUE or FALSE for each passed script
+
+## getLastError
+##### Description
+The last error message (if any)
+##### Parameters
+*none*  
+##### Return Value
+A string with the last returned script based error message, or NULL if there is no error
+##### Examples
+<pre>
+$redis->eval('this-is-not-lua');
+$err = $redis->getLastError(); 
+// "ERR Error compiling script (new function): user_script:1: '=' expected near '-'"
+</pre>
+
+## clearLastError
+##### Description
+Clear the last error message  
+##### Parameters
+*none*  
+##### Return Value
+*BOOL* TRUE  
+##### Examples
+<pre>
+$redis->set('x', 'a');
+$redis->incr('x');
+$err = $redis->getLastError();
+// "ERR value is not an integer or out of range"
+$redis->clearLastError();
+$err = $redis->getLastError();
+// NULL
+</pre>
+
+## _prefix
+##### Description
+A utility method to prefix the value with the prefix setting for phpredis.
+##### Parameters
+*value* string.  The value you wish to prefix  
+##### Return value
+If a prefix is set up, the value now prefixed.  If there is no prefix, the value will be returned unchanged.
+##### Examples
+<pre>
+$redis->setOption(Redis::OPT_PREFIX, 'my-prefix:');
+$redis->_prefix('my-value'); // Will return 'my-prefix:my-value'
+</pre>
+
+## _unserialize
+##### Description
+A utility method to unserialize data with whatever serializer is set up.  If there is no serializer set, the value will be
+returned unchanged.  If there is a serializer set up, and the data passed in is malformed, an exception will be thrown.
+This can be useful if phpredis is serializing values, and you return something from redis in a LUA script that is serialized.
+##### Parameters
+*value* string.  The value to be unserialized  
+##### Examples
+<pre>
+$redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+$redis->_unserialize('a:3:{i:0;i:1;i:1;i:2;i:2;i:3;}'); // Will return Array(1,2,3)
+</pre>
+
+## dump
+##### Description
+Dump a key out of a redis database, the value of which can later be passed into redis using the RESTORE command.  The data
+that comes out of DUMP is a binary representation of the key as Redis stores it.
+##### Parameters
+*key* string  
+##### Return value
+The Redis encoded value of the key, or FALSE if the key doesn't exist
+##### Examples
+<pre>
+$redis->set('foo', 'bar');
+$val = $redis->dump('foo'); // $val will be the Redis encoded key value
+</pre>
+
+## restore
+##### Description
+Restore a key from the result of a DUMP operation.
+##### Parameters
+*key* string.  The key name  
+*ttl* integer.  How long the key should live (if zero, no expire will be set on the key)  
+*value* string (binary).  The Redis encoded key value (from DUMP)  
+##### Examples
+<pre>
+$redis->set('foo', 'bar');
+$val = $redis->dump('foo');
+$redis->restore('bar', 0, $val); // The key 'bar', will now be equal to the key 'foo'
+</pre>
+
+## migrate
+##### Description
+Migrates a key to a different Redis instance.
+##### Parameters
+*host* string.  The destination host  
+*port* integer.  The TCP port to connect to.  
+*key* string. The key to migrate.  
+*destination-db* integer.  The target DB.  
+*timeout* integer.  The maximum amount of time given to this transfer.  
+##### Examples
+<pre>
+$redis->migrate('backup', 6379, 'foo', 0, 3600);
+</pre>
+
+## time
+##### Description
+Return the current Redis server time.
+##### Parameters
+(none)  
+##### Return value
+If successfull, the time will come back as an associative array with element zero being
+the unix timestamp, and element one being microseconds.
+##### Examples
+<pre>
+$redis->time();
 </pre>
