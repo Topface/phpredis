@@ -168,65 +168,56 @@ PHPAPI char *redis_sock_read_bulk_reply(RedisSock *redis_sock, int bytes TSRMLS_
 /**
  * redis_sock_read
  */
-PHPAPI char *redis_sock_read(RedisSock *redis_sock, int *buf_len TSRMLS_DC)
+__attribute__ ((visibility("default"))) char *redis_sock_read(RedisSock *redis_sock, int *buf_len )
 {
     char inbuf[1024];
-    char *resp = NULL;
+    char *resp = ((void *)0);
     size_t err_len;
-
-    if(-1 == redis_check_eof(redis_sock TSRMLS_CC)) {
-        return NULL;
+    if(-1 == redis_check_eof(redis_sock )) {
+        return ((void *)0);
     }
-
-    if(php_stream_gets(redis_sock->stream, inbuf, 1024) == NULL) {
-		redis_stream_close(redis_sock TSRMLS_CC);
-        redis_sock->stream = NULL;
-        redis_sock->status = REDIS_SOCK_STATUS_FAILED;
+    if(_php_stream_get_line((redis_sock->stream), (inbuf), (1024), ((void *)0) ) == ((void *)0)) {
+        redis_stream_close(redis_sock );
+        redis_sock->stream = ((void *)0);
+        redis_sock->status = 0;
         redis_sock->mode = ATOMIC;
         redis_sock->watching = 0;
-        zend_throw_exception(redis_exception_ce, "read error on connection", 0 TSRMLS_CC);
-        return NULL;
+        zend_throw_exception(redis_exception_ce, "read error on connection", 0 );
+        return ((void *)0);
     }
-
     switch(inbuf[0]) {
-        case '-':
-			err_len = strlen(inbuf+1) - 2;
-			redis_sock_set_err(redis_sock, inbuf+1, err_len);
-			/* stale data */
-			if(memcmp(inbuf + 1, "-ERR SYNC ", 10) == 0) {
-				zend_throw_exception(redis_exception_ce, "SYNC with master in progress", 0 TSRMLS_CC);
-			}
-            return NULL;
-
-        case '$':
-            *buf_len = atoi(inbuf + 1);
-            resp = redis_sock_read_bulk_reply(redis_sock, *buf_len TSRMLS_CC);
+    case '-':
+        err_len = strlen(inbuf+1) - 2;
+        redis_sock_set_err(redis_sock, inbuf+1, err_len);
+        if(memcmp(inbuf + 1, "-ERR SYNC ", 10) == 0) {
+            zend_throw_exception(redis_exception_ce, "SYNC with master in progress", 0 );
+        }
+        return ((void *)0);
+    case '$':
+        *buf_len = atoi(inbuf + 1);
+        resp = redis_sock_read_bulk_reply(redis_sock, *buf_len );
+        return resp;
+    case '+':
+    case '*':
+    case ':':
+        *buf_len = strlen(inbuf) - 2;
+        if(*buf_len >= 2) {
+            resp = _emalloc((1+*buf_len) );
+            memcpy(resp, inbuf, *buf_len);
+            resp[*buf_len] = 0;
             return resp;
-
-        case '+':
-		case '*':
-        case ':':
-	    // Single Line Reply
-            /* :123\r\n */
-            *buf_len = strlen(inbuf) - 2;
-            if(*buf_len >= 2) {
-                resp = emalloc(1+*buf_len);
-                memcpy(resp, inbuf, *buf_len);
-                resp[*buf_len] = 0;
-                return resp;
-            }
-
-        default:
-			zend_throw_exception_ex(
-				redis_exception_ce,
-				0 TSRMLS_CC,
-				"protocol error, got '%c' as reply type byte\n",
-				inbuf[0]
-			);
+        }
+    default:
+        zend_throw_exception_ex(
+            redis_exception_ce,
+            0 ,
+            "protocol error, got '%c' as reply type byte\n",
+            inbuf[0]
+        );
     }
-
-    return NULL;
+    return ((void *)0);
 }
+
 
 void add_constant_long(zend_class_entry *ce, char *name, int value) {
     zval *constval;
@@ -629,46 +620,68 @@ PHPAPI void redis_boolean_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redi
     redis_boolean_response_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, redis_sock, z_tab, ctx, NULL);
 }
 
-PHPAPI void redis_long_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval * z_tab, void *ctx) {
-
+__attribute__ ((visibility("default"))) void redis_long_response(int ht, zval *return_value, zval **return_value_ptr, zval *this_ptr, int return_value_used , RedisSock *redis_sock, zval * z_tab, void *ctx)
+{
     char *response;
     int response_len;
-
-    if ((response = redis_sock_read(redis_sock, &response_len TSRMLS_CC)) == NULL) {
-		IF_MULTI_OR_PIPELINE() {
-			add_next_index_bool(z_tab, 0);
-			return;
-		} else {
-			RETURN_FALSE;
-		}
+    if ((response = redis_sock_read(redis_sock, &response_len )) == ((void *)0)) {
+        if(redis_sock->mode == MULTI || redis_sock->mode == PIPELINE) {
+            add_next_index_bool(z_tab, 0);
+            return;
+        } else {
+            { {
+                    (*return_value).type = 3;
+                    (*return_value).value.lval = ((0) != 0);
+                };
+                return;
+            };
+        }
     }
-
     if(response[0] == ':') {
         long long ret = atoll(response + 1);
-        IF_MULTI_OR_PIPELINE() {
-			if(ret > LONG_MAX) { /* overflow */
-				add_next_index_stringl(z_tab, response+1, response_len-1, 1);
-			} else {
-				efree(response);
-				add_next_index_long(z_tab, (long)ret);
-			}
+        if(redis_sock->mode == MULTI || redis_sock->mode == PIPELINE) {
+            if(ret > 9223372036854775807L) {
+                add_next_index_stringl(z_tab, response+1, response_len-1, 1);
+            } else {
+                _efree((response) );
+                add_next_index_long(z_tab, (long)ret);
+            }
         } else {
-			if(ret > LONG_MAX) { /* overflow */
-				RETURN_STRINGL(response+1, response_len-1, 1);
-			} else {
-				efree(response);
-				RETURN_LONG((long)ret);
-			}
-		}
+            if(ret > 9223372036854775807L) {
+                { {
+                        const char *__s=(response+1);
+                        int __l=response_len-1;
+                        (*return_value).value.str.len = __l;
+                        (*return_value).value.str.val = (1?_estrndup((__s), (__l) ):(char*)__s);
+                        (*return_value).type = 6;
+                    };
+                    return;
+                };
+            } else {
+                _efree((response) );
+                { {
+                        (*return_value).type = 1;
+                        (*return_value).value.lval = (long)ret;
+                    };
+                    return;
+                };
+            }
+        }
     } else {
-        efree(response);
-        IF_MULTI_OR_PIPELINE() {
-          add_next_index_null(z_tab);
+        _efree((response) );
+        if(redis_sock->mode == MULTI || redis_sock->mode == PIPELINE) {
+            add_next_index_null(z_tab);
         } else {
-			RETURN_FALSE;
-		}
+            { {
+                    (*return_value).type = 3;
+                    (*return_value).value.lval = ((0) != 0);
+                };
+                return;
+            };
+        }
     }
 }
+
 
 
 

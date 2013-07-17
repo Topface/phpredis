@@ -5768,30 +5768,137 @@ PHP_METHOD(Redis, isValidKey)
 
 /* {{{ proto int Redis::qPush(key, value)
  */
-PHP_METHOD(Redis, qPush)
+void zim_Redis_qPush(int ht, zval *return_value, zval **return_value_ptr, zval *this_ptr, int return_value_used )
 {
     zval *object;
     RedisSock *redis_sock;
     char *cmd, *key, *val;
     int cmd_len, key_len, val_len;
-
-    if (zend_parse_method_parameters(ZEND_NUM_ARGS() TSRMLS_CC, getThis(), "Oss",
+    if (zend_parse_method_parameters((ht) , (this_ptr), "Oss",
                                      &object, redis_ce,
-                                     &key, &key_len, &val, &val_len) == FAILURE) {
-        RETURN_NULL();
+                                     &key, &key_len, &val, &val_len) == -1) {
+        { {
+                (*return_value).type = 0;
+            };
+            return;
+        };
     }
-
-    if (redis_sock_get(object, &redis_sock TSRMLS_CC, 0) < 0) {
-        RETURN_FALSE;
+    if (redis_sock_get(object, &redis_sock , 0) < 0) {
+        { {
+                (*return_value).type = 3;
+                (*return_value).value.lval = ((0) != 0);
+            };
+            return;
+        };
     }
-
     cmd_len = redis_cmd_format_static(&cmd, "QPUSH", "ss", key, key_len, val, val_len);
-
-    REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len);
-    IF_ATOMIC() {
-        redis_long_response(INTERNAL_FUNCTION_PARAM_PASSTHRU, redis_sock, NULL, NULL);
+    if(redis_sock->mode == MULTI || redis_sock->mode == ATOMIC) {
+        if(redis_sock_write(redis_sock, cmd, cmd_len ) < 0) {
+            _efree((cmd) );
+            { {
+                    (*return_value).type = 3;
+                    (*return_value).value.lval = ((0) != 0);
+                };
+                return;
+            };
+        };
+        _efree((cmd) );
     }
-    REDIS_PROCESS_RESPONSE(redis_long_response);
+    if(redis_sock->mode == PIPELINE) {
+        request_item *tmp;
+        struct request_item *current_request;
+        tmp = malloc(sizeof(request_item));
+        tmp->request_str = calloc(cmd_len, 1);
+        memcpy(tmp->request_str, cmd, cmd_len);
+        tmp->request_size = cmd_len;
+        tmp->next = ((void *)0);
+        current_request = redis_sock->pipeline_current;
+        if(current_request) {
+            current_request->next = tmp;
+        }
+        redis_sock->pipeline_current = tmp;
+        if(((void *)0) == redis_sock->pipeline_head) {
+            redis_sock->pipeline_head = redis_sock->pipeline_current;
+        };
+        _efree((cmd) );
+    };
+    if(redis_sock->mode == ATOMIC) {
+        redis_long_response(ht, return_value, return_value_ptr, this_ptr, return_value_used , redis_sock, ((void *)0), ((void *)0));
+    } else if(redis_sock->mode == MULTI) {
+        if(redis_response_enqueued(redis_sock ) == 1) {
+            if(redis_sock->mode == MULTI || redis_sock->mode == PIPELINE) {
+                fold_item *f1, *current;
+                f1 = malloc(sizeof(fold_item));
+                f1->fun = (void *)redis_long_response;
+                f1->ctx = ((void *)0);
+                f1->next = ((void *)0);
+                current = redis_sock->current;
+                if(current) current->next = f1;
+                redis_sock->current = f1;
+                if(((void *)0) == redis_sock->head) {
+                    redis_sock->head = redis_sock->current;
+                }
+            };
+            { {
+                    zend_uchar is_ref = zval_isref_p(return_value);
+                    zend_uint refcount = zval_refcount_p(return_value);
+                    *(return_value) = *((this_ptr));
+                    if (1) {
+                        _zval_copy_ctor((return_value) );
+                    }
+                    if (0) {
+                        if (!1) { {
+                                (*(this_ptr)).type = 0;
+                            };
+                        }
+                        _zval_ptr_dtor((&(this_ptr)) );
+                    }
+                    zval_set_isref_to_p(return_value, is_ref);
+                    zval_set_refcount_p(return_value, refcount);
+                };
+                return;
+            };
+        } else { { {
+                    (*return_value).type = 3;
+                    (*return_value).value.lval = ((0) != 0);
+                };
+                return;
+            };
+        }
+    } else if(redis_sock->mode == PIPELINE) {
+        if(redis_sock->mode == MULTI || redis_sock->mode == PIPELINE) {
+            fold_item *f1, *current;
+            f1 = malloc(sizeof(fold_item));
+            f1->fun = (void *)redis_long_response;
+            f1->ctx = ((void *)0);
+            f1->next = ((void *)0);
+            current = redis_sock->current;
+            if(current) current->next = f1;
+            redis_sock->current = f1;
+            if(((void *)0) == redis_sock->head) {
+                redis_sock->head = redis_sock->current;
+            }
+        };
+        { {
+                zend_uchar is_ref = zval_isref_p(return_value);
+                zend_uint refcount = zval_refcount_p(return_value);
+                *(return_value) = *((this_ptr));
+                if (1) {
+                    _zval_copy_ctor((return_value) );
+                }
+                if (0) {
+                    if (!1) { {
+                            (*(this_ptr)).type = 0;
+                        };
+                    }
+                    _zval_ptr_dtor((&(this_ptr)) );
+                }
+                zval_set_isref_to_p(return_value, is_ref);
+                zval_set_refcount_p(return_value, refcount);
+            };
+            return;
+        };
+    };;
 }
 /* }}} */
 
